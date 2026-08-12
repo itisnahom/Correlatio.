@@ -1,0 +1,343 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,300;0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;1,14..32,400&family=Space+Grotesk:wght@500;600;700&display=swap');
+
+/* ============================================================
+   CORRELATIO — DESIGN SYSTEM v2
+   Palette: Warm Black · Amber · Emerald · Rose
+   ============================================================ */
+:root {
+  /* Backgrounds */
+  --bg:       #09090b;
+  --bg-1:     #111110;
+  --bg-2:     #18171a;
+
+  /* Surfaces (warm-tinted glass) */
+  --surface:       rgba(255, 252, 245, 0.035);
+  --surface-hover: rgba(255, 252, 245, 0.058);
+  --surface-press: rgba(255, 252, 245, 0.02);
+
+  /* Borders */
+  --border:        rgba(255, 252, 245, 0.08);
+  --border-bright: rgba(255, 252, 245, 0.16);
+  --border-focus:  rgba(245, 158, 11, 0.5);
+
+  /* Text */
+  --text-1: #faf8f3;
+  --text-2: #a09b8c;
+  --text-3: #555047;
+
+  /* === SIGNATURE ACCENTS === */
+  --amber:        #f59e0b;
+  --amber-bright: #fbbf24;
+  --amber-dim:    rgba(245, 158, 11, 0.15);
+  --amber-glow:   0 0 40px rgba(245, 158, 11, 0.18);
+
+  --emerald:      #10b981;
+  --emerald-dim:  rgba(16, 185, 129, 0.15);
+
+  --rose:         #f43f5e;
+  --rose-dim:     rgba(244, 63, 94, 0.15);
+
+  --sky:          #38bdf8;
+
+  /* Correlation colors */
+  --corr-pos:       #10b981;
+  --corr-pos-dim:   rgba(16, 185, 129, 0.12);
+  --corr-pos-text:  #34d399;
+  --corr-neg:       #f43f5e;
+  --corr-neg-dim:   rgba(244, 63, 94, 0.12);
+  --corr-neg-text:  #fb7185;
+  --corr-none:      #a09b8c;
+
+  /* Shadows */
+  --shadow-xs: 0 1px 4px rgba(0,0,0,0.5);
+  --shadow-sm: 0 2px 10px rgba(0,0,0,0.55);
+  --shadow-md: 0 8px 32px rgba(0,0,0,0.65);
+  --shadow-lg: 0 20px 60px rgba(0,0,0,0.75);
+
+  /* Radii */
+  --r-xs:   6px;
+  --r-sm:   10px;
+  --r-md:   14px;
+  --r-lg:   18px;
+  --r-xl:   24px;
+  --r-full: 9999px;
+
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 16px;
+  line-height: 1.6;
+  color-scheme: dark;
+  color: var(--text-1);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Ambient noise texture overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(ellipse 800px 600px at 50% -10%, rgba(245,158,11,0.06) 0%, transparent 70%),
+    radial-gradient(ellipse 500px 500px at 90% 80%, rgba(16,185,129,0.05) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ============================================================
+   TYPOGRAPHY
+   ============================================================ */
+h1, h2, h3, h4, h5 {
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.2;
+  color: var(--text-1);
+}
+p { color: var(--text-2); line-height: 1.65; }
+
+.font-display { font-family: 'Space Grotesk', sans-serif; }
+
+.text-gradient-amber {
+  background: linear-gradient(135deg, var(--amber-bright) 0%, #f97316 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.text-gradient-warm {
+  background: linear-gradient(135deg, var(--text-1) 0%, var(--text-2) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ============================================================
+   CARD / SURFACE
+   ============================================================ */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.card-interactive {
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+.card-interactive:hover {
+  border-color: var(--border-bright);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-3px);
+}
+
+/* ============================================================
+   BUTTONS
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 10px 20px;
+  border: none;
+  border-radius: var(--r-full);
+  font-family: inherit;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  text-decoration: none;
+  user-select: none;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.btn-amber {
+  background: var(--amber);
+  color: #0a0906;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(245,158,11,0.3);
+}
+.btn-amber:hover {
+  background: var(--amber-bright);
+  box-shadow: 0 6px 28px rgba(245,158,11,0.4);
+  transform: translateY(-1px);
+}
+.btn-amber:active { transform: scale(0.98); }
+
+.btn-ghost {
+  background: transparent;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover {
+  background: var(--surface-hover);
+  color: var(--text-1);
+  border-color: var(--border-bright);
+}
+
+.btn-surface {
+  background: var(--surface-hover);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+}
+.btn-surface:hover {
+  background: rgba(255,252,245,0.08);
+  border-color: var(--border-bright);
+}
+
+/* ============================================================
+   INPUTS
+   ============================================================ */
+.input {
+  background: rgba(0,0,0,0.3);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  padding: 11px 14px;
+  border-radius: var(--r-sm);
+  font-family: inherit;
+  font-size: 0.9rem;
+  width: 100%;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.input::placeholder { color: var(--text-3); }
+.input:focus {
+  outline: none;
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(245,158,11,0.1);
+}
+
+.input-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--text-3);
+  margin-bottom: 7px;
+}
+
+/* ============================================================
+   TOGGLE
+   ============================================================ */
+.toggle-wrap { display: flex; align-items: center; gap: 9px; cursor: pointer; user-select: none; }
+.toggle-wrap input { display: none; }
+.toggle-track {
+  width: 40px; height: 22px;
+  background: rgba(255,252,245,0.08);
+  border: 1px solid var(--border);
+  border-radius: var(--r-full);
+  position: relative;
+  transition: background 0.25s, border-color 0.25s;
+  flex-shrink: 0;
+}
+.toggle-thumb {
+  position: absolute; top: 3px; left: 3px;
+  width: 14px; height: 14px;
+  background: var(--text-2);
+  border-radius: 50%;
+  transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.25s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+}
+.toggle-wrap input:checked ~ .toggle-track { background: var(--amber-dim); border-color: rgba(245,158,11,0.4); }
+.toggle-wrap input:checked ~ .toggle-track .toggle-thumb { transform: translateX(18px); background: var(--amber); }
+
+/* ============================================================
+   CORRELATION BADGE
+   ============================================================ */
+.r-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: var(--r-full);
+  font-size: 0.8rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.r-badge.pos { background: var(--corr-pos-dim); color: var(--corr-pos-text); border: 1px solid rgba(16,185,129,0.2); }
+.r-badge.neg { background: var(--corr-neg-dim); color: var(--corr-neg-text); border: 1px solid rgba(244,63,94,0.2); }
+.r-badge.none { background: rgba(160,155,140,0.1); color: var(--text-3); border: 1px solid var(--border); }
+
+/* ============================================================
+   ANIMATIONS
+   ============================================================ */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes scaleIn {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+@keyframes gaugeAnim {
+  from { stroke-dashoffset: 440; }
+}
+
+.fade-up  { animation: fadeUp  0.5s cubic-bezier(0.16,1,0.3,1) both; }
+.fade-in  { animation: fadeIn  0.3s ease both; }
+.scale-in { animation: scaleIn 0.35s cubic-bezier(0.16,1,0.3,1) both; }
+.d1 { animation-delay: .05s; }
+.d2 { animation-delay: .10s; }
+.d3 { animation-delay: .15s; }
+.d4 { animation-delay: .20s; }
+.d5 { animation-delay: .25s; }
+.d6 { animation-delay: .30s; }
+
+/* ============================================================
+   SPINNER / LOADING
+   ============================================================ */
+.spinner {
+  width: 28px; height: 28px;
+  border: 2px solid var(--border);
+  border-top-color: var(--amber);
+  border-radius: 50%;
+  animation: spin 0.75s linear infinite;
+}
+.loading-screen {
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; min-height: 100vh;
+  color: var(--text-2); font-size: 0.875rem;
+}
+
+/* ============================================================
+   SCROLLBAR
+   ============================================================ */
+::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+
+/* ============================================================
+   DIVIDER
+   ============================================================ */
+.divider { height: 1px; background: var(--border); }
