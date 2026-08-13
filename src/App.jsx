@@ -7,21 +7,46 @@ import { CorrelatioLogo } from './components/Auth';
 import Auth from './components/Auth';
 import Dashboard from './components/Dashboard';
 import ChainDetail from './components/ChainDetail';
+import Basket from './components/Basket';
 import './App.css';
 
 function Navbar({ user }) {
+  const [showMenu, setShowMenu] = useState(false);
   const handleLogout = async () => { try { await logout(); } catch (e) { console.error(e); } };
+
   return (
     <nav className="navbar">
-      <Link to="/" className="nav-brand">
-        <CorrelatioLogo size={18} />
-        <span className="nav-brand-name">Correlatio</span>
-      </Link>
-      <div className="nav-user">
-        <img src={user.photoURL} alt="" className="nav-avatar" referrerPolicy="no-referrer" />
-        <span className="nav-username">{user.displayName?.split(' ')[0]}</span>
+      <div className="nav-left">
+        <Link to="/" className="nav-brand">
+          <CorrelatioLogo size={18} />
+          <span className="nav-brand-name">Correlatio</span>
+        </Link>
         <span className="nav-sep" />
-        <button className="nav-signout" onClick={handleLogout}>Sign out</button>
+        <Link to="/" className="nav-link">Threads</Link>
+        <Link to="/basket" className="nav-link">🧺 Basket</Link>
+      </div>
+      <div className="nav-user-wrap">
+        <button className="nav-avatar-btn" onClick={() => setShowMenu(!showMenu)}>
+          <img src={user.photoURL} alt="" className="nav-avatar" referrerPolicy="no-referrer" />
+        </button>
+        {showMenu && (
+          <>
+            <div className="nav-menu-overlay" onClick={() => setShowMenu(false)} />
+            <div className="nav-dropdown scale-in">
+              <div className="nav-dropdown-user">
+                <img src={user.photoURL} alt="" className="nav-dropdown-avatar" referrerPolicy="no-referrer" />
+                <div>
+                  <div className="nav-dropdown-name">{user.displayName}</div>
+                  <div className="nav-dropdown-email">{user.email}</div>
+                </div>
+              </div>
+              <div className="nav-dropdown-divider" />
+              <button className="nav-dropdown-item" onClick={handleLogout}>
+                <span>🚪</span> Sign out
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </nav>
   );
@@ -50,8 +75,9 @@ function App() {
         <div className="app-content">
           <Routes>
             <Route path="/" element={user ? <Dashboard user={user} /> : <Navigate to="/login" />} />
-            <Route path="/login" element={!user ? <Auth user={user} /> : <Navigate to="/" />} />
+            <Route path="/login" element={!user ? <Auth user={user} /> : <Navigate to="/login" />} />
             <Route path="/chain/:chainId" element={user ? <ChainDetail user={user} /> : <Navigate to="/login" />} />
+            <Route path="/basket" element={user ? <Basket user={user} /> : <Navigate to="/login" />} />
           </Routes>
         </div>
       </div>

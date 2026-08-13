@@ -138,16 +138,27 @@ p { color: var(--text-2); line-height: 1.65; }
   border-radius: var(--r-lg);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+}
+.card::before {
+  content: ''; position: absolute; inset: 0; padding: 1px;
+  background: linear-gradient(135deg, rgba(255,255,255,0.2), transparent 50%, rgba(255,255,255,0.1));
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  border-radius: inherit;
+  opacity: 0; transition: opacity 0.3s; pointer-events: none;
 }
 .card-interactive {
   cursor: pointer;
-  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
+.card-interactive:hover::before { opacity: 1; }
 .card-interactive:hover {
-  border-color: var(--border-bright);
+  border-color: transparent;
   box-shadow: var(--shadow-md);
-  transform: translateY(-3px);
+  transform: translateY(-6px) scale(1.015);
 }
 
 /* ============================================================
@@ -165,12 +176,13 @@ p { color: var(--text-2); line-height: 1.65; }
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.18s ease;
+  transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
   text-decoration: none;
   user-select: none;
   white-space: nowrap;
   line-height: 1;
 }
+.btn:active { transform: scale(0.96); }
 
 .btn-amber {
   background: var(--amber);
@@ -180,10 +192,10 @@ p { color: var(--text-2); line-height: 1.65; }
 }
 .btn-amber:hover {
   background: var(--amber-bright);
-  box-shadow: 0 6px 28px rgba(245,158,11,0.4);
+  box-shadow: 0 8px 32px rgba(245,158,11,0.5);
   transform: translateY(-1px);
 }
-.btn-amber:active { transform: scale(0.98); }
+.btn-amber:active { transform: scale(0.96); }
 
 .btn-ghost {
   background: transparent;
@@ -218,13 +230,14 @@ p { color: var(--text-2); line-height: 1.65; }
   font-family: inherit;
   font-size: 0.9rem;
   width: 100%;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: all 0.25s ease;
 }
 .input::placeholder { color: var(--text-3); }
 .input:focus {
   outline: none;
   border-color: var(--amber);
   box-shadow: 0 0 0 3px rgba(245,158,11,0.1);
+  animation: glow-pulse 3s infinite;
 }
 
 .input-label {
@@ -303,9 +316,56 @@ p { color: var(--text-2); line-height: 1.65; }
   from { stroke-dashoffset: 440; }
 }
 
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 15px rgba(245,158,11,0.05); }
+  50% { box-shadow: 0 0 25px rgba(245,158,11,0.25); }
+}
+
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes slide-in-left {
+  from { opacity: 0; transform: translateX(-20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes card-lift {
+  to { transform: translateY(-6px); box-shadow: var(--shadow-lg); }
+}
+
+@keyframes gradient-shift {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.02); }
+}
+
+@keyframes navbar-enter {
+  from { opacity: 0; transform: translateY(-20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
 .fade-up  { animation: fadeUp  0.5s cubic-bezier(0.16,1,0.3,1) both; }
 .fade-in  { animation: fadeIn  0.3s ease both; }
 .scale-in { animation: scaleIn 0.35s cubic-bezier(0.16,1,0.3,1) both; }
+
+.float { animation: float 6s ease-in-out infinite; }
+.glow-pulse { animation: glow-pulse 3s infinite; }
+.slide-in-right { animation: slide-in-right 0.5s both; }
+.slide-in-left { animation: slide-in-left 0.5s both; }
+.breathe { animation: breathe 4s infinite; }
+
 .d1 { animation-delay: .05s; }
 .d2 { animation-delay: .10s; }
 .d3 { animation-delay: .15s; }
