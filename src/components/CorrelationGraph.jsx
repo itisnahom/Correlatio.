@@ -7,26 +7,31 @@ import {
 import { analyzePattern, calculatePearsonCorrelation } from '../utils/statistics';
 
 /* ---- Animated scatter dot with glow ---- */
-const Dot = ({ cx, cy, fill, index }) => (
-  <g>
-    <circle cx={cx} cy={cy} r={12} fill={fill} opacity={0.08}>
-      <animate attributeName="r" values="10;14;10" dur="3s" repeatCount="indefinite" begin={`${(index || 0) * 0.1}s`} />
-    </circle>
-    <circle cx={cx} cy={cy} r={5} fill={fill} opacity={0.9}>
-      <animate attributeName="opacity" values="0.7;1;0.7" dur="2s" repeatCount="indefinite" />
-    </circle>
-    <circle cx={cx} cy={cy} r={2} fill="#faf8f3" opacity={0.7} />
-  </g>
-);
+const Dot = (props) => {
+  const { cx, cy, fill, index, payload } = props;
+  const hasNote = !!payload?.note;
+  return (
+    <g>
+      <circle cx={cx} cy={cy} r={hasNote ? 16 : 12} fill={hasNote ? 'var(--amber)' : fill} opacity={hasNote ? 0.2 : 0.08}>
+        <animate attributeName="r" values={hasNote ? "14;20;14" : "10;14;10"} dur="3s" repeatCount="indefinite" begin={`${(index || 0) * 0.1}s`} />
+      </circle>
+      <circle cx={cx} cy={cy} r={5} fill={fill} opacity={0.9}>
+        <animate attributeName="opacity" values="0.7;1;0.7" dur="2s" repeatCount="indefinite" />
+      </circle>
+      <circle cx={cx} cy={cy} r={2} fill={hasNote ? 'var(--amber)' : "#faf8f3"} opacity={0.8} />
+    </g>
+  );
+};
 
 /* ---- Enhanced tooltips ---- */
 const ScatterTip = ({ active, payload, chain }) => {
   if (!active || !payload?.length) return null;
+  const pData = payload[0]?.payload || {};
   return (
     <div style={{
       background: 'rgba(9,9,11,0.95)', border: '1px solid rgba(255,252,245,0.12)',
       borderRadius: 12, padding: '12px 16px', fontSize: '0.8rem', lineHeight: 1.9,
-      backdropFilter: 'blur(12px)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+      backdropFilter: 'blur(12px)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', maxWidth: '280px'
     }}>
       <div style={{ color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 6 }}>
         <span>{chain?.var1Icon ?? '📊'}</span>
@@ -36,9 +41,14 @@ const ScatterTip = ({ active, payload, chain }) => {
         <span>{chain?.var2Icon ?? '📈'}</span>
         {chain?.var2Name}: <strong style={{ color: '#faf8f3' }}>{payload[1]?.value} {chain?.var2Unit}</strong>
       </div>
-      {payload[0]?.payload?.dateString && (
+      {pData.dateString && (
         <div style={{ color: 'rgba(255,252,245,0.3)', fontSize: '0.7rem', marginTop: 4, borderTop: '1px solid rgba(255,252,245,0.06)', paddingTop: 4 }}>
-          {payload[0].payload.dateString}
+          {pData.dateString}
+        </div>
+      )}
+      {pData.note && (
+        <div style={{ color: 'var(--amber)', fontSize: '0.75rem', marginTop: 6, fontStyle: 'italic', lineHeight: 1.4 }}>
+          "{pData.note}"
         </div>
       )}
     </div>
@@ -47,11 +57,12 @@ const ScatterTip = ({ active, payload, chain }) => {
 
 const LineTip = ({ active, payload, label }) => {
   if (!active || !payload?.length) return null;
+  const pData = payload[0]?.payload || {};
   return (
     <div style={{
       background: 'rgba(9,9,11,0.95)', border: '1px solid rgba(255,252,245,0.12)',
       borderRadius: 12, padding: '12px 16px', fontSize: '0.8rem', lineHeight: 1.9,
-      backdropFilter: 'blur(12px)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+      backdropFilter: 'blur(12px)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', maxWidth: '280px'
     }}>
       <div style={{ color: 'rgba(255,252,245,0.4)', marginBottom: 4, fontSize: '0.72rem' }}>{label}</div>
       {payload.map((p, i) => (
@@ -59,6 +70,11 @@ const LineTip = ({ active, payload, label }) => {
           {p.name}: <strong style={{ color: '#faf8f3' }}>{p.value}</strong>
         </div>
       ))}
+      {pData.note && (
+        <div style={{ color: 'var(--amber)', fontSize: '0.75rem', marginTop: 6, fontStyle: 'italic', lineHeight: 1.4, borderTop: '1px solid rgba(255,252,245,0.06)', paddingTop: 6 }}>
+          "{pData.note}"
+        </div>
+      )}
     </div>
   );
 };

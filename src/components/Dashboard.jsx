@@ -5,6 +5,7 @@ import { collection, query, getDocs, addDoc, serverTimestamp } from 'firebase/fi
 import { calculatePearsonCorrelation } from '../utils/statistics';
 import { getVarType, VARIABLE_TYPES } from '../utils/variableTypes';
 import VariablePicker from './VariablePicker';
+import { StreakWidget, ActivityHeatmap, calculateStreaks } from './Gamification';
 
 const CARD_ACCENTS = [
   { stripe: 'linear-gradient(135deg,#f59e0b,#f97316)', iconBg: 'rgba(245,158,11,0.12)', glow: 'rgba(245,158,11,0.15)' },
@@ -37,6 +38,10 @@ const Dashboard = ({ user }) => {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
+  
+  // Gamification state
+  const [allLogDates, setAllLogDates] = useState([]);
+  const [streaks, setStreaks] = useState({ current: 0, longest: 0, today: false });
 
   // New thread form state — now supports N variables
   const [threadName, setThreadName] = useState('');
@@ -56,10 +61,17 @@ const Dashboard = ({ user }) => {
       setThreads(fetched);
 
       const st = {};
+      const dates = [];
+      
       for (const ch of fetched) {
         try {
           const ls = await getDocs(collection(db, `users/${user.uid}/chains/${ch.id}/logs`));
           const logs = []; ls.forEach(d => logs.push(d.data()));
+          
+          logs.forEach(l => {
+            if (l.dateString) dates.push(l.dateString);
+          });
+          
           // For backwards compat, use val1/val2 if present, else values array
           const xData = logs.map(l => l.values ? l.values[0] : l.val1);
           const yData = logs.map(l => l.values ? l.values[1] : l.val2);
@@ -68,6 +80,8 @@ const Dashboard = ({ user }) => {
         } catch { st[ch.id] = { r: null, count: 0 }; }
       }
       setStats(st);
+      setAllLogDates(dates);
+      setStreaks(calculateStreaks(dates));
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
@@ -148,6 +162,11 @@ const Dashboard = ({ user }) => {
             ? 'Create your first Thread to start discovering hidden correlations.'
             : `${threads.length} active thread${threads.length !== 1 ? 's' : ''}. Keep logging to strengthen your data.`}
         </p>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '32px' }}>
+        <StreakWidget current={streaks.current} longest={streaks.longest} today={streaks.today} />
+        <ActivityHeatmap allLogDates={allLogDates} />
       </div>
 
       <div className="section-bar">

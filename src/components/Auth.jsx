@@ -25,8 +25,18 @@ export const CorrelatioLogo = ({ size = 22 }) => (
 );
 
 const Auth = ({ user }) => {
+  const [isLoggingIn, setIsLoggingIn] = React.useState(false);
+
   const handleLogin = async () => {
-    try { await signInWithGoogle(); } catch (e) { console.error(e); }
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
+    try { 
+      await signInWithGoogle(); 
+    } catch (e) { 
+      console.error(e); 
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
   const handleLogout = async () => {
     try { await logout(); } catch (e) { console.error(e); }
@@ -63,9 +73,9 @@ const Auth = ({ user }) => {
       <div className="card login-card">
         <h3>Get started for free</h3>
         <p>Sign in to create and track your first Habit Chain</p>
-        <button className="btn-google" onClick={handleLogin}>
+        <button className="btn-google" onClick={handleLogin} disabled={isLoggingIn} style={{ opacity: isLoggingIn ? 0.7 : 1, cursor: isLoggingIn ? 'not-allowed' : 'pointer' }}>
           <GoogleIcon />
-          Continue with Google
+          {isLoggingIn ? 'Opening popup...' : 'Continue with Google'}
         </button>
       </div>
 

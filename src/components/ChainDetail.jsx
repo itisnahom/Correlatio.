@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { db } from '../firebase';
 import { doc, getDoc, collection, query, getDocs, addDoc, deleteDoc, orderBy, serverTimestamp } from 'firebase/firestore';
 import { useNavigate, useParams, Link } from 'react-router-dom';
+import html2canvas from 'html2canvas';
 import CorrelationGraph from './CorrelationGraph';
 import NerdModeStats from './NerdModeStats';
 import TimerInput from './TimerInput';
@@ -52,8 +53,10 @@ const ChainDetail = ({ user }) => {
   const [nerdMode, setNerdMode] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('scatter');
+  const [note, setNote] = useState('');
   // Selected pair for scatter plot: [indexA, indexB]
   const [selectedPair, setSelectedPair] = useState([0, 1]);
+  const exportRef = useRef(null);
 
   useEffect(() => { fetchData(); }, [chainId]);
 
@@ -93,11 +96,13 @@ const ChainDetail = ({ user }) => {
         // Backwards compat for old 2-var format
         val1: numValues[0],
         val2: numValues[1],
+        note: note.trim(),
         createdAt: serverTimestamp(),
         dateString: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       };
       await addDoc(collection(db, `users/${user.uid}/chains/${chainId}/logs`), logDoc);
       setValues(new Array(chain.variables.length).fill(''));
+      setNote('');
       fetchData();
     } catch (err) { console.error(err); }
     finally { setSubmitting(false); }
@@ -125,16 +130,34 @@ const ChainDetail = ({ user }) => {
     return corrMatrix.find(m => m.i === selectedPair[0] && m.j === selectedPair[1]) || { r: null };
   }, [corrMatrix, selectedPair]);
 
-  if (loading) return <div className="loading-screen"><div className="spinner" /><span>Crunching numbers…</span></div>;
+  const rValue = currentCorr.r;
+  const absR = rValue !== null ? Math.abs(rValue) : 0;
+  const strength = getStrength(absR);
+  const interpretation = interpretCorrelation(rValue, chain?.variables[selectedPair[0]]?.name, chain?.variables[selectedPair[1]]?.name);
+
+  const handleExport = async () => {
+    if (!exportRef.current) return;
+    try {
+      const canvas = await html2canvas(exportRef.current, {
+        backgroundColor: '#09090b',
+        scale: 2,
+        useCORS: true,
+      });
+      const link = document.createElement('a');
+      link.download = `Correlatio-${chain.name.replace(/\s+/g, '-')}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (err) {
+      console.error('Failed to export graph', err);
+    }
+  };
+
+  if (loading) return <div className="loading-screen"><div className="spinner" /><span>Loading…</span></div>;
   if (!chain) return <div className="loading-screen">Thread not found.</div>;
 
   const vars = chain.variables;
-  const rValue = currentCorr.r;
   const rClass = getRClass(rValue);
   const rLabel = getRLabel(rValue);
-  const interpretation = interpretCorrelation(rValue);
-  const strength = getStrength(rValue);
-  const absR = rValue !== null ? Math.abs(rValue) : 0;
 
   // Build compatible chain object for CorrelationGraph (selected pair)
   const graphChain = {
@@ -156,8 +179,9 @@ const ChainDetail = ({ user }) => {
 
   return (
     <div className="chain-page fade-up">
-      <Link to="/" className="back-btn">← Back to threads</Link>
+      <Link to="/" className="back-btn" data-html2canvas-ignore="true">← Back to threads</Link>
 
+      <div ref={exportRef} style={{ background: 'var(--bg)', padding: '20px', borderRadius: '16px', margin: '-20px' }}>
       {/* Header */}
       <div className="chain-page-header">
         <div>
@@ -182,6 +206,9 @@ const ChainDetail = ({ user }) => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: '0.8rem', color: 'var(--amber)' }} onClick={handleExport}>
+            📸 Export
+          </button>
           <label className="toggle-wrap" htmlFor="nerd-mode">
             <input type="checkbox" id="nerd-mode" checked={nerdMode} onChange={e => setNerdMode(e.target.checked)} />
             <div className="toggle-track"><div className="toggle-thumb" /></div>
@@ -271,6 +298,19 @@ const ChainDetail = ({ user }) => {
                 />
               </div>
             ))}
+            
+            <div className="log-var-label" style={{ marginTop: '8px' }}>
+              <span className="log-var-icon">📓</span>
+              <span style={{ color: 'var(--text-2)' }}>Journal Note (optional)</span>
+            </div>
+            <textarea
+              className="input"
+              style={{ width: '100%', minHeight: '60px', padding: '10px', resize: 'vertical' }}
+              placeholder="Any context for today?"
+              value={note}
+              onChange={e => setNote(e.target.value)}
+            />
+
             <button type="submit" className="btn btn-amber log-submit" disabled={submitting}>
               {submitting ? 'Saving…' : '+ Log entry'}
             </button>
@@ -347,6 +387,7 @@ const ChainDetail = ({ user }) => {
             </div>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

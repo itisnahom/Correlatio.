@@ -75,7 +75,7 @@ function App() {
         <div className="app-content">
           <Routes>
             <Route path="/" element={user ? <Dashboard user={user} /> : <Navigate to="/login" />} />
-            <Route path="/login" element={!user ? <Auth user={user} /> : <Navigate to="/login" />} />
+            <Route path="/login" element={!user ? <Auth user={user} /> : <Navigate to="/" />} />
             <Route path="/chain/:chainId" element={user ? <ChainDetail user={user} /> : <Navigate to="/login" />} />
             <Route path="/basket" element={user ? <Basket user={user} /> : <Navigate to="/login" />} />
           </Routes>
