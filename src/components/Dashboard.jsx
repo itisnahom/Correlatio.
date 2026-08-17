@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, query, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { calculatePearsonCorrelation } from '../utils/statistics';
 import { getVarType, VARIABLE_TYPES } from '../utils/variableTypes';
 import VariablePicker from './VariablePicker';
 import { StreakWidget, ActivityHeatmap, calculateStreaks } from './Gamification';
+import { seedTestData } from '../utils/seed';
 
 const CARD_ACCENTS = [
   { stripe: 'linear-gradient(135deg,#f59e0b,#f97316)', iconBg: 'rgba(245,158,11,0.12)', glow: 'rgba(245,158,11,0.15)' },
@@ -21,9 +22,8 @@ const VAR_COLORS = ['#f59e0b', '#10b981', '#f43f5e', '#38bdf8', '#a78bfa'];
 const getRClass = (r) => r === null ? 'none' : r > 0.1 ? 'pos' : r < -0.1 ? 'neg' : 'none';
 const getRLabel = (r) => r === null ? '—' : (r > 0 ? '+' : '') + r.toFixed(2);
 
-// Helper to normalize old (var1/var2) format to new (variables array) format
 const normalizeThread = (ch) => {
-  if (ch.variables) return ch; // already new format
+  if (ch.variables) return ch;
   return {
     ...ch,
     variables: [
@@ -33,7 +33,13 @@ const normalizeThread = (ch) => {
   };
 };
 
+const normalizeLog = (log) => {
+  if (log.values) return log;
+  return { ...log, values: [log.val1, log.val2] };
+};
+
 const Dashboard = ({ user }) => {
+  const location = useLocation();
   const [threads, setThreads] = useState([]);
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
@@ -50,44 +56,74 @@ const Dashboard = ({ user }) => {
     { typeId: null, name: '', unit: '' },
   ]);
   const [creating, setCreating] = useState(false);
+  const [formError, setFormError] = useState('');
 
-  useEffect(() => { fetchAll(); }, []);
+  useEffect(() => { 
+    fetchAll(); 
+    
+    // Check if we came from Basket.jsx with prefilled variables
+    if (location.state?.prefillVariables) {
+      const prefill = location.state.prefillVariables.map(v => ({
+        typeId: v.typeId, name: v.name, unit: v.unit
+      }));
+      // Pad to at least 2 variables
+      while (prefill.length < 2) prefill.push({ typeId: null, name: '', unit: '' });
+      
+      setVariables(prefill.slice(0, 3)); // Max 3
+      setShowModal(true);
+      // Clear state so it doesn't reopen on refresh
+      window.history.replaceState({}, document.title);
+    }
+  }, []);
+
+  // Auto-fade error
+  useEffect(() => {
+    if (formError) {
+      const t = setTimeout(() => setFormError(''), 4000);
+      return () => clearTimeout(t);
+    }
+  }, [formError]);
 
   const fetchAll = async () => {
     try {
       const snap = await getDocs(query(collection(db, `users/${user.uid}/chains`)));
       const fetched = [];
-      snap.forEach(d => fetched.push(normalizeThread({ id: d.id, ...d.data() })));
-      setThreads(fetched);
+      snap.forEach(d => {
+        fetched.push({ id: d.id, ...d.data() });
+      });
+      setThreads(fetched.map(t => normalizeThread(t)));
 
-      const st = {};
-      const dates = [];
+      // Fetch all logs to populate gamification
+      let allDates = [];
+      for (const th of fetched) {
+        const logsSnap = await getDocs(collection(db, `users/${user.uid}/chains/${th.id}/logs`));
+        logsSnap.forEach(l => {
+          const data = l.data();
+          if (data.dateString) allDates.push(data.dateString);
+        });
+      }
+      setAllLogDates(allDates);
+      setStreaks(calculateStreaks(allDates));
       
+      const st = {};
       for (const ch of fetched) {
         try {
           const ls = await getDocs(collection(db, `users/${user.uid}/chains/${ch.id}/logs`));
-          const logs = []; ls.forEach(d => logs.push(d.data()));
+          const logs = []; ls.forEach(d => logs.push(normalizeLog(d.data())));
           
-          logs.forEach(l => {
-            if (l.dateString) dates.push(l.dateString);
-          });
-          
-          // For backwards compat, use val1/val2 if present, else values array
-          const xData = logs.map(l => l.values ? l.values[0] : l.val1);
-          const yData = logs.map(l => l.values ? l.values[1] : l.val2);
+          const xData = logs.map(l => l.values[0]);
+          const yData = logs.map(l => l.values[1]);
           const r = calculatePearsonCorrelation(xData, yData);
           st[ch.id] = { r, count: logs.length };
         } catch { st[ch.id] = { r: null, count: 0 }; }
       }
       setStats(st);
-      setAllLogDates(dates);
-      setStreaks(calculateStreaks(dates));
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
 
   const addVariable = () => {
-    if (variables.length >= 5) return;
+    if (variables.length >= 3) return; // Max 3 variables
     setVariables(prev => [...prev, { typeId: null, name: '', unit: '' }]);
   };
 
@@ -102,8 +138,19 @@ const Dashboard = ({ user }) => {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    const allValid = threadName && variables.every(v => v.name && v.typeId);
-    if (!allValid) return;
+    setFormError(''); // Reset error
+    
+    if (!threadName.trim()) {
+      setFormError('⚠️ Please provide a name for this thread!');
+      return;
+    }
+    
+    const hasInvalidVars = variables.some(v => !v.name.trim() || !v.typeId);
+    if (hasInvalidVars) {
+      setFormError('⚠️ Please ensure all variables have a name and type selected.');
+      return;
+    }
+    
     setCreating(true);
     try {
       const vars = variables.map(v => {
@@ -116,19 +163,9 @@ const Dashboard = ({ user }) => {
         };
       });
 
-      // Store in both old format (for backwards compat) and new format
       const docData = {
         name: threadName,
         variables: vars,
-        // Keep old format fields for backwards compat with ChainDetail
-        var1Name: vars[0].name,
-        var1TypeId: vars[0].typeId,
-        var1Icon: vars[0].icon,
-        var1Unit: vars[0].unit,
-        var2Name: vars[1].name,
-        var2TypeId: vars[1].typeId,
-        var2Icon: vars[1].icon,
-        var2Unit: vars[1].unit,
         createdAt: serverTimestamp(),
       };
 
@@ -156,7 +193,9 @@ const Dashboard = ({ user }) => {
   return (
     <div className="fade-up">
       <div className="dashboard-hero">
-        <p className="dashboard-greeting">{greeting}, {firstName} 👋</p>
+        <p className="dashboard-greeting">
+          {greeting}, {firstName} <span style={{ fontFamily: '"Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif' }}>✨</span>
+        </p>
         <p className="dashboard-sub">
           {threads.length === 0
             ? 'Create your first Thread to start discovering hidden correlations.'
@@ -171,12 +210,24 @@ const Dashboard = ({ user }) => {
 
       <div className="section-bar">
         <span className="section-eyebrow">Your Threads</span>
-        <button className="btn btn-amber" style={{ padding: '8px 16px', fontSize: '0.82rem' }} onClick={() => setShowModal(true)}>
-          + New Thread
-        </button>
+        <div style={{ display: 'flex', gap: '12px' }}>
+          <button className="btn btn-ghost" style={{ padding: '8px 12px', fontSize: '0.82rem' }} onClick={() => seedTestData(user.uid)}>
+            🧪 Seed Test Data
+          </button>
+          <button className="btn btn-amber" style={{ padding: '8px 16px', fontSize: '0.82rem' }} onClick={() => setShowModal(true)}>
+            + New Thread
+          </button>
+        </div>
       </div>
 
       <div className="chains-grid">
+        {threads.length === 0 && (
+          <div className="card fade-up" style={{ padding: '64px 24px', textAlign: 'center', gridColumn: '1 / -1' }}>
+            <div className="float" style={{ fontSize: '3rem', marginBottom: '16px' }}>🧵</div>
+            <h3 style={{ marginBottom: '8px' }}>No threads yet</h3>
+            <p style={{ maxWidth: '400px', margin: '0 auto', fontSize: '0.9rem' }}>Create a thread to track the relationship between any two or three variables in your life.</p>
+          </div>
+        )}
         {threads.map((thread, i) => {
           const { stripe, iconBg, glow } = CARD_ACCENTS[i % CARD_ACCENTS.length];
           const s = stats[thread.id] || {};
@@ -220,11 +271,11 @@ const Dashboard = ({ user }) => {
 
       {/* Create thread modal — now supports N variables */}
       {showModal && (
-        <div className="modal-backdrop" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
+        <div className="glass-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
           <div className="modal">
             <div className="modal-header">
               <span className="modal-title">New Thread</span>
-              <button className="modal-close" onClick={() => setShowModal(false)}>×</button>
+              <button className="modal-close" onClick={() => { setShowModal(false); setFormError(''); }}>×</button>
             </div>
 
             <form onSubmit={handleCreate}>
@@ -272,14 +323,14 @@ const Dashboard = ({ user }) => {
                 </React.Fragment>
               ))}
 
-              {variables.length < 5 && (
+              {variables.length < 3 && (
                 <button
                   type="button"
                   className="btn btn-ghost"
                   onClick={addVariable}
                   style={{ width: '100%', borderRadius: '10px', padding: '10px', margin: '12px 0 4px', borderStyle: 'dashed' }}
                 >
-                  + Add another variable ({variables.length}/5)
+                  + Add another variable ({variables.length}/3)
                 </button>
               )}
 
@@ -287,17 +338,31 @@ const Dashboard = ({ user }) => {
                 <button
                   type="submit"
                   className="btn btn-amber"
-                  disabled={creating || !threadName || !variables.every(v => v.name && v.typeId)}
+                  disabled={creating}
                   style={{ flex: 1, borderRadius: '10px', padding: '12px', fontSize: '0.9rem' }}
                 >
                   {creating ? 'Creating…' : 'Create Thread'}
                 </button>
-                <button type="button" className="btn btn-ghost" style={{ borderRadius: '10px', padding: '12px 18px' }} onClick={() => setShowModal(false)}>
+                <button type="button" className="btn btn-ghost" style={{ borderRadius: '10px', padding: '12px 18px' }} onClick={() => { setShowModal(false); setFormError(''); }}>
                   Cancel
                 </button>
               </div>
             </form>
           </div>
+        </div>
+      )}
+      
+      {/* Global Error Toast Snackbar */}
+      {formError && (
+        <div className="fade-up" style={{ 
+          position: 'fixed', top: '32px', left: '50%', transform: 'translateX(-50%)', 
+          background: 'var(--bg-2)', color: 'var(--text-1)', padding: '16px 24px', 
+          borderRadius: '12px', fontSize: '0.95rem', fontWeight: 500,
+          border: '1px solid var(--border)',
+          boxShadow: 'var(--shadow-lg)', zIndex: 999999,
+          display: 'flex', alignItems: 'center', gap: '12px', maxWidth: '400px'
+        }}>
+          <span>{formError.replace('⚠️ ', '')}</span>
         </div>
       )}
     </div>

@@ -6,6 +6,7 @@ import html2canvas from 'html2canvas';
 import CorrelationGraph from './CorrelationGraph';
 import NerdModeStats from './NerdModeStats';
 import TimerInput from './TimerInput';
+import ExportCard, { EXPORT_THEMES } from './ExportCard';
 import { calculatePearsonCorrelation, interpretCorrelation } from '../utils/statistics';
 
 const VAR_COLORS = ['#f59e0b', '#10b981', '#f43f5e', '#38bdf8', '#a78bfa'];
@@ -22,23 +23,25 @@ const getStrength = (r) => {
 };
 
 // Normalize old format to new variables array
-const normalizeChain = (ch) => {
+const normalizeThread = (ch) => {
   if (ch.variables) return ch;
   return {
     ...ch,
     variables: [
       { name: ch.var1Name, typeId: ch.var1TypeId, icon: ch.var1Icon || '📊', unit: ch.var1Unit },
-      { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit },
-    ],
+      { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit }
+    ]
   };
 };
 
-// Extract value for a given variable index from a log entry (compat with old/new format)
+const normalizeLog = (log) => {
+  if (log.values) return log;
+  return { ...log, values: [log.val1, log.val2] };
+};
+
+// Get a value handling backwards compat for old logs
 const getLogValue = (log, index) => {
-  if (log.values) return log.values[index];
-  if (index === 0) return log.val1;
-  if (index === 1) return log.val2;
-  return null;
+  return log.values[index];
 };
 
 const ChainDetail = ({ user }) => {
@@ -57,6 +60,10 @@ const ChainDetail = ({ user }) => {
   // Selected pair for scatter plot: [indexA, indexB]
   const [selectedPair, setSelectedPair] = useState([0, 1]);
   const exportRef = useRef(null);
+  
+  // Export Modal state
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportTheme, setExportTheme] = useState(EXPORT_THEMES[0].id);
 
   useEffect(() => { fetchData(); }, [chainId]);
 
@@ -64,14 +71,16 @@ const ChainDetail = ({ user }) => {
     try {
       const chainSnap = await getDoc(doc(db, `users/${user.uid}/chains/${chainId}`));
       if (chainSnap.exists()) {
-        const normalized = normalizeChain({ id: chainSnap.id, ...chainSnap.data() });
+        const normalized = normalizeThread({ id: chainSnap.id, ...chainSnap.data() });
         setChain(normalized);
-        setValues(new Array(normalized.variables.length).fill(''));
+        setValues(Array.from({ length: normalized.variables.length }).fill(''));
       }
       const q = query(collection(db, `users/${user.uid}/chains/${chainId}/logs`), orderBy('createdAt', 'asc'));
       const snap = await getDocs(q);
       const arr = [];
-      snap.forEach(d => arr.push({ id: d.id, ...d.data() }));
+      snap.forEach(d => {
+        arr.push({ id: d.id, ...normalizeLog(d.data()) });
+      });
       setLogs(arr);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -93,15 +102,15 @@ const ChainDetail = ({ user }) => {
       const numValues = values.map(Number);
       const logDoc = {
         values: numValues,
-        // Backwards compat for old 2-var format
-        val1: numValues[0],
-        val2: numValues[1],
         note: note.trim(),
         createdAt: serverTimestamp(),
-        dateString: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+        dateString: (() => {
+          const d = new Date();
+          return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        })(),
       };
       await addDoc(collection(db, `users/${user.uid}/chains/${chainId}/logs`), logDoc);
-      setValues(new Array(chain.variables.length).fill(''));
+      setValues(Array.from({ length: chain.variables.length }).fill(''));
       setNote('');
       fetchData();
     } catch (err) { console.error(err); }
@@ -126,27 +135,35 @@ const ChainDetail = ({ user }) => {
   }, [chain, logs]);
 
   // Currently selected pair's r value
+  const isAllThree = selectedPair.length === 3;
   const currentCorr = useMemo(() => {
+    if (isAllThree) return { r: null };
     return corrMatrix.find(m => m.i === selectedPair[0] && m.j === selectedPair[1]) || { r: null };
-  }, [corrMatrix, selectedPair]);
+  }, [corrMatrix, selectedPair, isAllThree]);
 
   const rValue = currentCorr.r;
   const absR = rValue !== null ? Math.abs(rValue) : 0;
   const strength = getStrength(absR);
   const interpretation = interpretCorrelation(rValue, chain?.variables[selectedPair[0]]?.name, chain?.variables[selectedPair[1]]?.name);
 
-  const handleExport = async () => {
+  const handleDownloadExport = async () => {
     if (!exportRef.current) return;
     try {
+      // Ensure all web fonts are fully loaded before rendering
+      await document.fonts.ready;
+      
       const canvas = await html2canvas(exportRef.current, {
-        backgroundColor: '#09090b',
+        backgroundColor: null,
         scale: 2,
         useCORS: true,
+        allowTaint: true,
+        logging: false
       });
       const link = document.createElement('a');
       link.download = `Correlatio-${chain.name.replace(/\s+/g, '-')}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
+      setShowExportModal(false);
     } catch (err) {
       console.error('Failed to export graph', err);
     }
@@ -168,6 +185,11 @@ const ChainDetail = ({ user }) => {
     var2Name: vars[selectedPair[1]]?.name,
     var2Unit: vars[selectedPair[1]]?.unit,
     var2Icon: vars[selectedPair[1]]?.icon,
+    ...(isAllThree ? {
+      var3Name: vars[2]?.name,
+      var3Unit: vars[2]?.unit,
+      var3Icon: vars[2]?.icon,
+    } : {})
   };
 
   // Build compatible logs for the selected pair
@@ -175,7 +197,26 @@ const ChainDetail = ({ user }) => {
     ...l,
     val1: getLogValue(l, selectedPair[0]),
     val2: getLogValue(l, selectedPair[1]),
+    ...(isAllThree ? { val3: getLogValue(l, 2) } : {})
   }));
+
+  const todayDateString = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  const hasLoggedToday = logs.some(l => l.dateString === todayDateString);
+  
+  const displayDate = (ds) => {
+    if (!ds) return '';
+    if (ds.includes('-')) {
+      const parts = ds.split('-');
+      if (parts.length === 3) {
+        const dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+        return dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      }
+    }
+    return ds; // fallback for old "Aug 17" strings
+  };
 
   return (
     <div className="chain-page fade-up">
@@ -206,7 +247,7 @@ const ChainDetail = ({ user }) => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-          <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: '0.8rem', color: 'var(--amber)' }} onClick={handleExport}>
+          <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: '0.8rem', color: 'var(--amber)' }} onClick={() => setShowExportModal(true)}>
             📸 Export
           </button>
           <label className="toggle-wrap" htmlFor="nerd-mode">
@@ -220,13 +261,13 @@ const ChainDetail = ({ user }) => {
         </div>
       </div>
 
-      {/* Correlation Matrix (for 3+ variables) */}
-      {vars.length > 2 && logs.length >= 3 && (
+      {/* Correlation Matrix (for 3+ variables, pair-specific for scatter plot) */}
+      {vars.length > 2 && logs.length >= 3 && activeTab === 'scatter' && (
         <div className="card corr-matrix-panel d1 fade-up">
           <div className="corr-matrix-title">Correlation Matrix</div>
           <div className="corr-matrix-grid" style={{ gridTemplateColumns: `repeat(${corrMatrix.length}, 1fr)` }}>
             {corrMatrix.map((pair, idx) => {
-              const isActive = selectedPair[0] === pair.i && selectedPair[1] === pair.j;
+              const isActive = selectedPair[0] === pair.i && selectedPair[1] === pair.j && !isAllThree;
               const pairR = pair.r;
               const pairClass = getRClass(pairR);
               return (
@@ -247,12 +288,30 @@ const ChainDetail = ({ user }) => {
                 </button>
               );
             })}
+
+            {vars.length === 3 && (
+              <button
+                className={`corr-matrix-cell none${isAllThree ? ' active' : ''}`}
+                onClick={() => setSelectedPair([0, 1, 2])}
+                style={{ gridColumn: `1 / span ${corrMatrix.length}`, marginTop: '8px' }}
+              >
+                <div className="corr-matrix-pair">
+                  <span style={{ color: VAR_COLORS[0] }}>{vars[0].icon}</span>
+                  <span className="corr-matrix-x">×</span>
+                  <span style={{ color: VAR_COLORS[1] }}>{vars[1].icon}</span>
+                  <span className="corr-matrix-x">×</span>
+                  <span style={{ color: VAR_COLORS[2] }}>{vars[2].icon}</span>
+                </div>
+                <div className="corr-matrix-names">All Three Variables</div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-3)', marginTop: 4 }}>3D Bubble Chart View</div>
+              </button>
+            )}
           </div>
         </div>
       )}
 
-      {/* Correlation Hero Banner */}
-      {logs.length >= 3 && (
+      {/* Correlation Hero Banner (Pair-specific) */}
+      {logs.length >= 3 && activeTab === 'scatter' && !isAllThree && (
         <div className={`corr-hero ${rClass} d1 fade-up`}>
           <div className="corr-hero-r">{rLabel}</div>
           <div className="corr-hero-info">
@@ -275,46 +334,84 @@ const ChainDetail = ({ user }) => {
         </div>
       )}
 
+      {/* Multivariate Bubble Chart Hero Banner */}
+      {logs.length >= 3 && activeTab === 'scatter' && isAllThree && (
+        <div className="corr-hero none d1 fade-up" style={{ padding: '24px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{ fontSize: '2.4rem', marginBottom: '8px' }}>🫧</div>
+          <strong style={{ fontSize: '1.2rem', display: 'block', color: 'var(--text-1)', marginBottom: '6px' }}>Multivariate Bubble Chart</strong>
+          <span style={{ color: 'var(--text-3)', fontSize: '0.9rem', maxWidth: '400px', lineHeight: 1.5 }}>
+            Exploring the intersection of 3 variables simultaneously. The <strong style={{ color: VAR_COLORS[2] }}>size of each bubble</strong> represents the value of <strong style={{ color: VAR_COLORS[2] }}>{vars[2].name}</strong>.
+          </span>
+        </div>
+      )}
+
       {/* Main layout */}
       <div className="chain-layout">
         {/* Log Panel */}
         <div className="card log-panel d2 fade-up">
           <div className="log-panel-title">Log today's values</div>
-          <form onSubmit={handleAdd} className="log-form">
-            {vars.map((v, vi) => (
-              <div key={vi}>
-                <div className="log-var-label">
-                  <span className="log-var-icon">{v.icon}</span>
-                  <span style={{ color: VAR_COLORS[vi] }}>{v.name}</span>
-                  {v.unit && <span className="log-var-unit">{v.unit}</span>}
-                </div>
-                <TimerInput
-                  value={values[vi] || ''}
-                  onChange={(val) => {
-                    setValues(prev => prev.map((pv, pi) => pi === vi ? val : pv));
-                  }}
-                  unit={v.unit}
-                  isTimeBased={['hours', 'minutes', 'hrs', 'min'].includes(v.typeId || v.unit)}
-                />
-              </div>
-            ))}
-            
-            <div className="log-var-label" style={{ marginTop: '8px' }}>
-              <span className="log-var-icon">📓</span>
-              <span style={{ color: 'var(--text-2)' }}>Journal Note (optional)</span>
+          
+          {hasLoggedToday ? (
+            <div className="logged-today-success" style={{ padding: '24px 16px', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', borderRadius: '12px', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+              <div style={{ fontSize: '2rem', marginBottom: '8px' }}>✅</div>
+              <h3 style={{ color: 'var(--emerald)', margin: '0 0 4px', fontSize: '1.1rem' }}>Data logged for today!</h3>
+              <p style={{ color: 'var(--text-3)', fontSize: '0.85rem', margin: 0 }}>Come back tomorrow to keep your streak alive.</p>
             </div>
-            <textarea
-              className="input"
-              style={{ width: '100%', minHeight: '60px', padding: '10px', resize: 'vertical' }}
-              placeholder="Any context for today?"
-              value={note}
-              onChange={e => setNote(e.target.value)}
-            />
+          ) : (
+            <form onSubmit={handleAdd} className="log-form">
+              {vars.map((v, vi) => (
+                <div key={vi}>
+                  <div className="log-var-label">
+                    <span className="log-var-icon">{v.icon}</span>
+                    <span style={{ color: VAR_COLORS[vi] }}>{v.name}</span>
+                    {v.unit && <span className="log-var-unit">{v.unit}</span>}
+                  </div>
+                  {v.typeId === 'boolean' || v.unit === 'bool' ? (
+                  <div style={{ marginTop: '8px', marginBottom: '16px' }}>
+                    <label className="toggle-wrap" style={{ cursor: 'pointer' }}>
+                      <input 
+                        type="checkbox" 
+                        checked={values[vi] === 1}
+                        onChange={(e) => {
+                          setValues(prev => prev.map((pv, pi) => pi === vi ? (e.target.checked ? 1 : 0) : pv));
+                        }} 
+                      />
+                      <div className="toggle-track"><div className="toggle-thumb" /></div>
+                      <span className="nerd-toggle-text" style={{ fontSize: '0.9rem' }}>
+                        {values[vi] === 1 ? 'Yes' : 'No'}
+                      </span>
+                    </label>
+                  </div>
+                ) : (
+                  <TimerInput
+                    value={values[vi] || ''}
+                    onChange={(val) => {
+                      setValues(prev => prev.map((pv, pi) => pi === vi ? val : pv));
+                    }}
+                    unit={v.unit}
+                    isTimeBased={['hours', 'minutes', 'hrs', 'min'].includes(v.typeId || v.unit)}
+                  />
+                )}
+                </div>
+              ))}
+              
+              <div className="log-var-label" style={{ marginTop: '8px' }}>
+                <span className="log-var-icon">📓</span>
+                <span style={{ color: 'var(--text-2)' }}>Journal Note (optional)</span>
+              </div>
+              <textarea
+                className="input"
+                style={{ width: '100%', minHeight: '60px', padding: '10px', resize: 'vertical' }}
+                placeholder="Any context for today?"
+                value={note}
+                onChange={e => setNote(e.target.value)}
+              />
 
-            <button type="submit" className="btn btn-amber log-submit" disabled={submitting}>
-              {submitting ? 'Saving…' : '+ Log entry'}
-            </button>
-          </form>
+              <button type="submit" className="btn btn-amber log-submit" disabled={submitting}>
+                {submitting ? 'Saving…' : '+ Log entry'}
+              </button>
+            </form>
+          )}
 
           {logs.length > 0 && (
             <div className="log-history">
@@ -322,7 +419,7 @@ const ChainDetail = ({ user }) => {
               <div className="log-history-title">Recent entries</div>
               {logs.slice().reverse().slice(0, 8).map((log, li) => (
                 <div key={log.id} className="log-row slide-in-right" style={{ animationDelay: `${li * 0.05}s` }}>
-                  <span className="log-row-date">{log.dateString}</span>
+                  <span className="log-row-date">{displayDate(log.dateString)}</span>
                   <div className="log-row-vals">
                     {vars.map((v, vi) => (
                       <React.Fragment key={vi}>
@@ -350,7 +447,7 @@ const ChainDetail = ({ user }) => {
             ) : (
               <>
                 <div className="chart-tabs">
-                  {[['scatter', 'Scatter Plot'], ['timeline', 'Timeline'], ['heatmap', 'Heat Map']].map(([id, label]) => (
+                  {[['scatter', 'Scatter Plot'], ['timeline', 'Timeline'], ['radar', 'Distribution'], ['heatmap', 'Heat Map']].map(([id, label]) => (
                     <button key={id} className={`chart-tab${activeTab === id ? ' active' : ''}`} onClick={() => setActiveTab(id)}>
                       {label}
                     </button>
@@ -366,6 +463,14 @@ const ChainDetail = ({ user }) => {
                     <span style={{ color: VAR_COLORS[selectedPair[1]], fontWeight: 600, fontSize: '0.82rem' }}>
                       {vars[selectedPair[1]]?.icon} {vars[selectedPair[1]]?.name}
                     </span>
+                    {isAllThree && (
+                      <>
+                        <span style={{ color: 'var(--text-3)', fontSize: '0.72rem' }}>sized by</span>
+                        <span style={{ color: VAR_COLORS[2], fontWeight: 600, fontSize: '0.82rem' }}>
+                          {vars[2]?.icon} {vars[2]?.name}
+                        </span>
+                      </>
+                    )}
                   </div>
                 )}
                 <CorrelationGraph
@@ -389,6 +494,71 @@ const ChainDetail = ({ user }) => {
         </div>
       </div>
       </div>
+
+      {/* Export Modal with Theme Picker */}
+      {showExportModal && (
+        <div className="glass-overlay" onClick={e => e.target === e.currentTarget && setShowExportModal(false)} style={{ zIndex: 9999, overflow: 'auto' }}>
+          <div className="modal" style={{ maxWidth: '900px', width: '100%', background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+            <div className="modal-header">
+              <span className="modal-title">Export & Share</span>
+              <button className="modal-close" onClick={() => setShowExportModal(false)}>×</button>
+            </div>
+            
+            <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '12px', marginBottom: '24px', flexWrap: 'wrap', justifyContent: 'center' }}>
+                {EXPORT_THEMES.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setExportTheme(t.id)}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '20px',
+                      border: exportTheme === t.id ? '2px solid white' : '1px solid var(--border)',
+                      background: t.bg,
+                      color: t.color,
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.2s ease',
+                      opacity: exportTheme === t.id ? 1 : 0.6
+                    }}
+                  >
+                    {t.name}
+                  </button>
+                ))}
+              </div>
+
+              {/* Hidden element strictly for html2canvas export without any CSS transform scaling */}
+              <div style={{ position: 'absolute', top: '-10000px', left: '-10000px' }}>
+                <ExportCard 
+                  ref={exportRef}
+                  chain={chain}
+                  rValue={rValue}
+                  logsCount={logs.length}
+                  themeId={exportTheme}
+                  user={user}
+                />
+              </div>
+
+              {/* The visual preview container */}
+              <div style={{ width: '800px', height: '450px', transform: 'scale(0.8)', transformOrigin: 'top center', marginBottom: '-80px', boxShadow: '0 20px 40px rgba(0,0,0,0.4)', borderRadius: '24px' }}>
+                <ExportCard 
+                  chain={chain}
+                  rValue={rValue}
+                  logsCount={logs.length}
+                  themeId={exportTheme}
+                  user={user}
+                />
+              </div>
+            </div>
+
+            <div className="modal-footer" style={{ padding: '20px', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'center' }}>
+              <button className="btn btn-amber" onClick={handleDownloadExport} style={{ padding: '12px 32px', fontSize: '1.1rem', borderRadius: '12px' }}>
+                ↓ Download Image
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

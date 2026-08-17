@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { calculatePearsonCorrelation } from '../utils/statistics';
 
 const Basket = ({ user }) => {
+  const navigate = useNavigate();
   const [threads, setThreads] = useState([]);
   const [allLogs, setAllLogs] = useState({});
   const [loading, setLoading] = useState(true);
+
+  // Drag and drop state
+  const [basketEggs, setBasketEggs] = useState([]);
+  const [isDragOver, setIsDragOver] = useState(false);
 
   useEffect(() => { fetchAll(); }, []);
 
@@ -20,9 +25,12 @@ const Basket = ({ user }) => {
 
       const logsMap = {};
       for (const ch of fetched) {
-        const ls = await getDocs(collection(db, `users/${user.uid}/chains/${ch.id}/logs`));
+        const logsSnap = await getDocs(collection(db, `users/${user.uid}/chains/${ch.id}/logs`));
         const logs = [];
-        ls.forEach(d => logs.push({ id: d.id, ...d.data() }));
+        logsSnap.forEach(d => {
+          const log = normalizeLog({ id: d.id, ...d.data() });
+          logs.push(log);
+        });
         logsMap[ch.id] = logs;
       }
       setAllLogs(logsMap);
@@ -30,78 +38,127 @@ const Basket = ({ user }) => {
     finally { setLoading(false); }
   };
 
-  // Extract all unique variables (eggs) across all threads
+  const normalizeThread = (ch) => {
+    if (ch.variables) return ch;
+    return {
+      ...ch,
+      variables: [
+        { name: ch.var1Name, typeId: ch.var1TypeId, icon: ch.var1Icon || '📊', unit: ch.var1Unit },
+        { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit }
+      ]
+    };
+  };
+
+  const normalizeLog = (log) => {
+    if (log.values) return log;
+    return { ...log, values: [log.val1, log.val2] };
+  };
+
+  const getLogValue = (log, index) => {
+    return log.values[index];
+  };
+
+  // Extract all unique variables (eggs)
   const eggs = useMemo(() => {
     const map = new Map();
     threads.forEach(ch => {
-      // Support old format (var1/var2) 
-      const vars = [
-        { name: ch.var1Name, icon: ch.var1Icon || '📊', unit: ch.var1Unit, threadId: ch.id, threadName: ch.name, index: 0 },
-        { name: ch.var2Name, icon: ch.var2Icon || '📈', unit: ch.var2Unit, threadId: ch.id, threadName: ch.name, index: 1 },
-      ];
-      vars.forEach(v => {
+      const chNormalized = normalizeThread(ch);
+      const vars = chNormalized.variables;
+      vars.forEach((v, index) => {
         const key = v.name?.toLowerCase();
         if (key && !map.has(key)) {
-          map.set(key, { ...v, sources: [{ threadId: ch.id, threadName: ch.name, index: v.index }] });
+          map.set(key, { ...v, sources: [{ threadId: ch.id, threadName: ch.name, index }] });
         } else if (key) {
-          map.get(key).sources.push({ threadId: ch.id, threadName: ch.name, index: v.index });
+          map.get(key).sources.push({ threadId: ch.id, threadName: ch.name, index });
         }
       });
     });
     return Array.from(map.values());
   }, [threads]);
 
-  // Compute all pairwise correlations between eggs that share data
-  const connections = useMemo(() => {
-    const results = [];
-    
-    for (let i = 0; i < eggs.length; i++) {
-      for (let j = i + 1; j < eggs.length; j++) {
-        const eggA = eggs[i];
-        const eggB = eggs[j];
-        
-        // Find threads where both eggs appear
-        for (const srcA of eggA.sources) {
-          for (const srcB of eggB.sources) {
-            if (srcA.threadId === srcB.threadId) {
-              const logs = allLogs[srcA.threadId] || [];
-              if (logs.length < 3) continue;
-              
-              const xData = logs.map(l => srcA.index === 0 ? l.val1 : l.val2);
-              const yData = logs.map(l => srcB.index === 0 ? l.val1 : l.val2);
-              const r = calculatePearsonCorrelation(xData, yData);
-              
-              if (r !== null) {
-                results.push({
-                  eggA, eggB,
-                  r,
-                  absR: Math.abs(r),
-                  threadId: srcA.threadId,
-                  threadName: srcA.threadName,
-                  count: logs.length,
-                });
-              }
-            }
-          }
-        }
-      }
-    }
-    
-    // Sort by absolute correlation strength
-    results.sort((a, b) => b.absR - a.absR);
-    return results;
-  }, [eggs, allLogs]);
-
-  const getStrengthLabel = (r) => {
-    const a = Math.abs(r);
-    if (a >= 0.8) return 'Very Strong';
-    if (a >= 0.6) return 'Strong';
-    if (a >= 0.4) return 'Moderate';
-    if (a >= 0.2) return 'Weak';
-    return 'Very Weak';
+  // Drag and Drop handlers
+  const handleDragStart = (e, egg) => {
+    e.dataTransfer.setData('application/json', JSON.stringify(egg));
+    e.currentTarget.style.opacity = '0.5';
   };
 
+  const handleDragEnd = (e) => {
+    e.currentTarget.style.opacity = '1';
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const data = e.dataTransfer.getData('application/json');
+    if (data) {
+      const egg = JSON.parse(data);
+      if (!basketEggs.find(e => e.name === egg.name)) {
+        setBasketEggs(prev => [...prev, egg]);
+      }
+    }
+  };
+
+  const clearBasket = () => setBasketEggs([]);
+
+  // Compute relations for basket items
+  const basketResult = useMemo(() => {
+    if (basketEggs.length < 2) return null;
+
+    // 1. Gather all data points for these eggs keyed by Date
+    const dateMap = {}; // { '2023-10-01': { 'Sleep': 8, 'Focus': 4 } }
+    
+    basketEggs.forEach(egg => {
+      egg.sources.forEach(src => {
+        const logs = allLogs[src.threadId] || [];
+        logs.forEach(log => {
+          if (!log.dateString) return;
+          const val = getLogValue(log, src.index);
+          if (val !== null) {
+            if (!dateMap[log.dateString]) dateMap[log.dateString] = {};
+            if (dateMap[log.dateString][egg.name] === undefined) {
+              dateMap[log.dateString][egg.name] = val;
+            }
+          }
+        });
+      });
+    });
+
+    // 2. Find intersecting dates
+    const validDates = Object.keys(dateMap).filter(date => 
+      basketEggs.every(egg => dateMap[date][egg.name] !== undefined)
+    ).sort();
+
+    if (validDates.length >= 3) {
+      // Calculate matrix
+      const matrix = [];
+      for (let i = 0; i < basketEggs.length; i++) {
+        for (let j = i + 1; j < basketEggs.length; j++) {
+          const eggA = basketEggs[i];
+          const eggB = basketEggs[j];
+          const xData = validDates.map(d => dateMap[d][eggA.name]);
+          const yData = validDates.map(d => dateMap[d][eggB.name]);
+          const r = calculatePearsonCorrelation(xData, yData);
+          matrix.push({ eggA, eggB, r });
+        }
+      }
+      return { type: 'found', count: validDates.length, matrix };
+    } else {
+      return { type: 'suggest', count: validDates.length };
+    }
+  }, [basketEggs, allLogs]);
+
   const getStrengthColor = (r) => {
+    if (r === null) return 'var(--text-3)';
     const a = Math.abs(r);
     if (a >= 0.6) return r > 0 ? 'var(--emerald)' : 'var(--rose)';
     if (a >= 0.3) return r > 0 ? 'var(--corr-pos-text)' : 'var(--corr-neg-text)';
@@ -112,90 +169,113 @@ const Basket = ({ user }) => {
 
   return (
     <div className="basket-page fade-up">
-      <div className="basket-hero">
-        <div className="basket-icon-wrap breathe">🧺</div>
-        <h1 className="basket-title">The Basket</h1>
-        <p className="basket-subtitle">
-          All your habits in one place. We find the hidden connections you never knew existed.
-        </p>
+      {/* Interactive Dropzone Hero */}
+      <div 
+        className={`basket-hero dropzone ${isDragOver ? 'drag-over' : ''} ${basketEggs.length > 0 ? 'has-items' : ''}`}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        style={{
+          position: 'relative',
+          padding: '60px 20px',
+          textAlign: 'center',
+          background: 'var(--bg-2)',
+          borderRadius: '24px',
+          border: isDragOver ? '2px dashed var(--emerald)' : '2px dashed var(--border)',
+          transition: 'all 0.3s ease',
+          marginBottom: '40px',
+          overflow: 'hidden'
+        }}
+      >
+        <div style={{ position: 'relative', zIndex: 2 }}>
+          <img src="/basket.svg" alt="Basket" style={{ width: '120px', height: '120px', objectFit: 'contain', filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.3))' }} />
+          <h1 className="basket-title" style={{ marginTop: '16px' }}>The Basket</h1>
+          
+          {basketEggs.length === 0 ? (
+            <p className="basket-subtitle">Drag and drop habits (eggs) here to discover their hidden connections.</p>
+          ) : (
+            <div style={{ marginTop: '24px' }}>
+              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                {basketEggs.map((egg, i) => (
+                  <div key={i} className="egg-card slide-in-bottom" style={{ width: 'auto', padding: '8px 16px', background: 'rgba(255,255,255,0.1)' }}>
+                    {egg.icon} {egg.name}
+                  </div>
+                ))}
+              </div>
+              <button className="btn btn-ghost" style={{ marginTop: '16px', fontSize: '0.8rem' }} onClick={clearBasket}>Clear Basket</button>
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Eggs Grid */}
+      {/* Basket Results */}
+      {basketResult && (
+        <div className="card fade-up" style={{ marginBottom: '40px', textAlign: 'center', background: 'rgba(16, 185, 129, 0.05)', borderColor: 'rgba(16, 185, 129, 0.2)' }}>
+          {basketResult.type === 'found' ? (
+            <div>
+              <h3 style={{ color: 'var(--emerald)', fontSize: '1.2rem', marginBottom: '8px' }}>Connection Found!</h3>
+              <p style={{ color: 'var(--text-2)', marginBottom: '20px' }}>Based on {basketResult.count} overlapping days across your tracking history, here is how they correlate.</p>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', marginBottom: '24px' }}>
+                {basketResult.matrix.map((m, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '16px', background: 'var(--bg)', padding: '12px 24px', borderRadius: '12px' }}>
+                    <span>{m.eggA.icon} {m.eggA.name}</span>
+                    <span style={{ color: getStrengthColor(m.r), fontWeight: 'bold' }}>
+                      {m.r !== null && !isNaN(m.r) ? (m.r > 0 ? '+' : '') + m.r.toFixed(2) : 'No Data'}
+                    </span>
+                    <span>{m.eggB.icon} {m.eggB.name}</span>
+                  </div>
+                ))}
+              </div>
+              <button 
+                className="btn btn-amber" 
+                onClick={() => navigate('/', { state: { prefillVariables: basketEggs } })}
+              >
+                Track these together →
+              </button>
+            </div>
+          ) : (
+            <div>
+              <h3 style={{ color: 'var(--amber)', fontSize: '1.2rem', marginBottom: '8px' }}>Uncharted Territory!</h3>
+              <p style={{ color: 'var(--text-2)', marginBottom: '20px' }}>
+                {basketResult.count > 0 
+                  ? `You only have ${basketResult.count} overlapping data point(s) for these habits. We need at least 3 to run the correlation algorithm.` 
+                  : `You haven't tracked these habits on the same day yet.`}
+              </p>
+              <button 
+                className="btn btn-amber" 
+                onClick={() => navigate('/', { state: { prefillVariables: basketEggs } })}
+              >
+                + Track this Relationship
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Eggs Grid (Draggable) */}
       <div className="basket-section">
         <div className="basket-section-header">
-          <span className="section-eyebrow">Your Eggs</span>
-          <span className="basket-count">{eggs.length} habits tracked</span>
+          <span className="section-eyebrow">Your Habits</span>
+          <span className="basket-count">Drag these into the basket</span>
         </div>
         
         <div className="eggs-grid">
           {eggs.map((egg, i) => (
-            <div key={egg.name} className={`egg-card fade-up d${Math.min(i + 1, 6)}`}>
+            <div 
+              key={egg.name} 
+              className="egg-card fade-up"
+              draggable
+              onDragStart={(e) => handleDragStart(e, egg)}
+              onDragEnd={handleDragEnd}
+              style={{ cursor: 'grab' }}
+            >
               <div className="egg-icon">{egg.icon}</div>
               <div className="egg-name">{egg.name}</div>
               <div className="egg-unit">{egg.unit}</div>
-              <div className="egg-sources">
-                {egg.sources.length} thread{egg.sources.length !== 1 ? 's' : ''}
-              </div>
             </div>
           ))}
         </div>
-      </div>
-
-      {/* Discovered Connections */}
-      <div className="basket-section">
-        <div className="basket-section-header">
-          <span className="section-eyebrow">Discovered Connections</span>
-          <span className="basket-count">{connections.length} pairs analyzed</span>
-        </div>
-
-        {connections.length === 0 ? (
-          <div className="basket-empty card">
-            <div className="basket-empty-icon">🔍</div>
-            <p>Not enough data yet. Keep logging your threads — connections will appear here as patterns emerge.</p>
-          </div>
-        ) : (
-          <div className="connections-list">
-            {connections.map((conn, i) => (
-              <Link
-                to={`/chain/${conn.threadId}`}
-                key={`${conn.eggA.name}-${conn.eggB.name}-${i}`}
-                className={`connection-card card fade-up d${Math.min(i + 1, 6)}`}
-              >
-                <div className="conn-rank">#{i + 1}</div>
-                
-                <div className="conn-pair">
-                  <div className="conn-egg">
-                    <span className="conn-egg-icon">{conn.eggA.icon}</span>
-                    <span>{conn.eggA.name}</span>
-                  </div>
-                  <div className="conn-link-line">
-                    <div className="conn-link-dot" style={{ background: getStrengthColor(conn.r) }} />
-                    <div className="conn-link-bar" style={{ background: getStrengthColor(conn.r), opacity: conn.absR }} />
-                    <div className="conn-link-dot" style={{ background: getStrengthColor(conn.r) }} />
-                  </div>
-                  <div className="conn-egg">
-                    <span className="conn-egg-icon">{conn.eggB.icon}</span>
-                    <span>{conn.eggB.name}</span>
-                  </div>
-                </div>
-
-                <div className="conn-stats">
-                  <div className={`r-badge ${conn.r > 0.1 ? 'pos' : conn.r < -0.1 ? 'neg' : 'none'}`}>
-                    r = {conn.r > 0 ? '+' : ''}{conn.r.toFixed(3)}
-                  </div>
-                  <div className="conn-strength" style={{ color: getStrengthColor(conn.r) }}>
-                    {getStrengthLabel(conn.r)}
-                  </div>
-                  <div className="conn-meta">
-                    {conn.count} data points · {conn.threadName}
-                  </div>
-                </div>
-
-                <div className="conn-cta">Explore →</div>
-              </Link>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

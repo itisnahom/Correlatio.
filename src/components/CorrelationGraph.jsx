@@ -1,24 +1,35 @@
 import React, { useMemo } from 'react';
 import {
-  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  ScatterChart, Scatter, XAxis, YAxis, ZAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Legend, Area, AreaChart, ComposedChart, Line,
+  Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis
 } from 'recharts';
 
 import { analyzePattern, calculatePearsonCorrelation } from '../utils/statistics';
 
 /* ---- Animated scatter dot with glow ---- */
 const Dot = (props) => {
-  const { cx, cy, fill, index, payload } = props;
+  const { cx, cy, fill, index, payload, is3D, zMin, zMax } = props;
   const hasNote = !!payload?.note;
+  
+  let baseR = 6;
+  if (is3D && payload?.z !== undefined) {
+    const range = (zMax - zMin) || 1;
+    const ratio = Math.max(0, Math.min(1, (payload.z - zMin) / range));
+    baseR = 6 + (ratio * 12); // Scale between 6px and 18px
+  }
+  
+  const glowR = hasNote ? baseR + 4 : baseR * 1.3;
+
   return (
     <g>
-      <circle cx={cx} cy={cy} r={hasNote ? 16 : 12} fill={hasNote ? 'var(--amber)' : fill} opacity={hasNote ? 0.2 : 0.08}>
-        <animate attributeName="r" values={hasNote ? "14;20;14" : "10;14;10"} dur="3s" repeatCount="indefinite" begin={`${(index || 0) * 0.1}s`} />
+      <circle cx={cx} cy={cy} r={glowR} fill={hasNote ? 'var(--amber)' : fill} opacity={hasNote ? 0.2 : 0.08}>
+        <animate attributeName="r" values={`${glowR};${glowR+6};${glowR}`} dur="3s" repeatCount="indefinite" begin={`${(index || 0) * 0.1}s`} />
       </circle>
-      <circle cx={cx} cy={cy} r={5} fill={fill} opacity={0.9}>
+      <circle cx={cx} cy={cy} r={baseR} fill={fill} opacity={0.9}>
         <animate attributeName="opacity" values="0.7;1;0.7" dur="2s" repeatCount="indefinite" />
       </circle>
-      <circle cx={cx} cy={cy} r={2} fill={hasNote ? 'var(--amber)' : "#faf8f3"} opacity={0.8} />
+      <circle cx={cx} cy={cy} r={baseR * 0.3} fill={hasNote ? 'var(--amber)' : "#faf8f3"} opacity={0.8} />
     </g>
   );
 };
@@ -34,13 +45,19 @@ const ScatterTip = ({ active, payload, chain }) => {
       backdropFilter: 'blur(12px)', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', maxWidth: '280px'
     }}>
       <div style={{ color: '#f59e0b', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>{chain?.var1Icon ?? '📊'}</span>
-        {chain?.var1Name}: <strong style={{ color: '#faf8f3' }}>{payload[0]?.value} {chain?.var1Unit}</strong>
+        <span>{chain?.variables[0].icon ?? '📊'}</span>
+        {chain?.variables[0].name}: <strong style={{ color: '#faf8f3' }}>{payload[0]?.value} {chain?.variables[0].unit}</strong>
       </div>
       <div style={{ color: '#10b981', display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span>{chain?.var2Icon ?? '📈'}</span>
-        {chain?.var2Name}: <strong style={{ color: '#faf8f3' }}>{payload[1]?.value} {chain?.var2Unit}</strong>
+        <span>{chain?.variables[1].icon ?? '📈'}</span>
+        {chain?.variables[1].name}: <strong style={{ color: '#faf8f3' }}>{payload[1]?.value} {chain?.variables[1].unit}</strong>
       </div>
+      {chain?.variables[2] && payload[2] && (
+        <div style={{ color: '#f43f5e', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span>{chain?.variables[2].icon ?? '🫧'}</span>
+          {chain?.variables[2].name}: <strong style={{ color: '#faf8f3' }}>{payload[2]?.value} {chain?.variables[2].unit}</strong>
+        </div>
+      )}
       {pData.dateString && (
         <div style={{ color: 'rgba(255,252,245,0.3)', fontSize: '0.7rem', marginTop: 4, borderTop: '1px solid rgba(255,252,245,0.06)', paddingTop: 4 }}>
           {pData.dateString}
@@ -87,10 +104,7 @@ const axisLine = { stroke: 'rgba(255,252,245,0.06)' };
 /* ---- Heatmap Component (built with CSS, no extra library) ---- */
 const HeatMap = ({ logs, allVars, varColors }) => {
   const getLogValue = (log, index) => {
-    if (log.values) return log.values[index];
-    if (index === 0) return log.val1;
-    if (index === 1) return log.val2;
-    return null;
+    return log.values[index];
   };
 
   const matrix = useMemo(() => {
@@ -180,11 +194,15 @@ const CorrelationGraph = ({ logs, chain, rValue, mode, allLogs, allVars, varColo
   const lineColor = rValue > 0.1 ? '#10b981' : rValue < -0.1 ? '#f43f5e' : '#a09b8c';
 
   /* ---- Scatter data + trend line ---- */
-  const scatterData = logs.map(l => ({ x: l.val1, y: l.val2, dateString: l.dateString }));
+  const scatterData = logs.map(l => ({ x: l.values[0], y: l.values[1], z: l.values[2], dateString: l.dateString }));
 
   const xVals = scatterData.map(d => d.x);
   const yVals = scatterData.map(d => d.y);
+  const zVals = scatterData.map(d => d.z).filter(v => v !== undefined && v !== null);
+  
   const xMin = Math.min(...xVals), xMax = Math.max(...xVals);
+  const zMin = zVals.length ? Math.min(...zVals) : 0;
+  const zMax = zVals.length ? Math.max(...zVals) : 100;
 
   const pattern = analyzePattern(xVals, yVals);
 
@@ -207,26 +225,77 @@ const CorrelationGraph = ({ logs, chain, rValue, mode, allLogs, allVars, varColo
 
   /* ---- HEATMAP MODE ---- */
   if (mode === 'heatmap') {
-    const heatVars = allVars || [
-      { name: chain?.var1Name, icon: chain?.var1Icon || '📊', unit: chain?.var1Unit },
-      { name: chain?.var2Name, icon: chain?.var2Icon || '📈', unit: chain?.var2Unit },
+    const vars = [
+      { name: chain?.variables[0].name, icon: chain?.variables[0].icon || '📊', unit: chain?.variables[0].unit },
+      { name: chain?.variables[1].name, icon: chain?.variables[1].icon || '📈', unit: chain?.variables[1].unit }
     ];
     const heatLogs = allLogs || logs;
-    return <HeatMap logs={heatLogs} allVars={heatVars} varColors={varColors} />;
+    return <HeatMap logs={heatLogs} allVars={vars} varColors={varColors} />;
+  }
+
+  /* ---- RADAR MODE (Distribution) ---- */
+  if (mode === 'radar') {
+    const radarVars = allVars || [
+      { name: chain?.variables[0].name, icon: chain?.variables[0].icon },
+      { name: chain?.variables[1].name, icon: chain?.variables[1].icon },
+    ];
+    const useLogs = allLogs || logs;
+    
+    const getVal = (log, idx) => {
+      return log.values[idx];
+    };
+
+    const radarData = radarVars.map((v, vi) => {
+      const vals = useLogs.map(l => getVal(l, vi)).filter(val => val != null);
+      const max = Math.max(...vals, 1); // Avoid div by 0
+      const avg = vals.reduce((a, b) => a + b, 0) / (vals.length || 1);
+      return {
+        subject: v.name,
+        A: (avg / max) * 100, // Normalized to 0-100
+        fullMark: 100,
+        rawAvg: avg,
+        unit: v.unit,
+      };
+    });
+
+    const CustomRadarTip = ({ active, payload }) => {
+      if (!active || !payload?.length) return null;
+      const data = payload[0].payload;
+      return (
+        <div style={{
+          background: 'rgba(9,9,11,0.95)', border: '1px solid rgba(255,252,245,0.12)',
+          borderRadius: 12, padding: '12px 16px', fontSize: '0.8rem', color: '#faf8f3'
+        }}>
+          <strong>{data.subject}</strong>
+          <div style={{ color: 'var(--amber)', marginTop: '4px' }}>
+            Avg: {data.rawAvg.toFixed(1)} {data.unit}
+          </div>
+        </div>
+      );
+    };
+
+    return (
+      <ResponsiveContainer width="100%" height={340}>
+        <RadarChart cx="50%" cy="50%" outerRadius="70%" data={radarData} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+          <PolarGrid stroke="rgba(255,252,245,0.1)" />
+          <PolarAngleAxis dataKey="subject" tick={{ fill: '#a09b8c', fontSize: '0.75rem' }} />
+          <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+          <Tooltip content={<CustomRadarTip />} />
+          <Radar name="Average (Normalized)" dataKey="A" stroke="var(--emerald)" fill="var(--emerald)" fillOpacity={0.3} />
+        </RadarChart>
+      </ResponsiveContainer>
+    );
   }
 
   /* ---- TIMELINE MODE with all variables ---- */
   if (mode === 'timeline') {
     const timeVars = allVars || [
-      { name: chain?.var1Name, icon: chain?.var1Icon },
-      { name: chain?.var2Name, icon: chain?.var2Icon },
+      { name: chain?.variables[0].name, icon: chain?.variables[0].icon },
+      { name: chain?.variables[1].name, icon: chain?.variables[1].icon },
     ];
     const useLogs = allLogs || logs;
     const getVal = (log, idx) => {
-      if (log.values) return log.values[idx];
-      if (idx === 0) return log.val1;
-      if (idx === 1) return log.val2;
-      return null;
+      return log.values[idx];
     };
 
     const timelineData = useLogs.map((l, i) => {
@@ -275,8 +344,14 @@ const CorrelationGraph = ({ logs, chain, rValue, mode, allLogs, allVars, varColo
 
   /* ---- SCATTER MODE (default) ---- */
   return (
-    <ResponsiveContainer width="100%" height={320}>
-      <ScatterChart margin={{ top: 10, right: 14, bottom: 22, left: -10 }}>
+    <div style={{ width: '100%', position: 'relative' }}>
+      {/* Explicit Y-Axis Label Header */}
+      <div style={{ color: '#10b981', fontSize: '0.75rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '4px', paddingLeft: '12px', marginBottom: '4px' }}>
+        <span>{chain?.variables[1].icon ?? '📈'}</span> {chain?.variables[1].name} {chain?.variables[1].unit && <span style={{ opacity: 0.6 }}>({chain.variables[1].unit})</span>}
+      </div>
+      
+      <ResponsiveContainer width="100%" height={320}>
+        <ScatterChart margin={{ top: 10, right: 14, bottom: 22, left: -10 }}>
         <defs>
           <radialGradient id="scatter-glow" cx="50%" cy="50%" r="50%">
             <stop offset="0%" stopColor={lineColor} stopOpacity={0.15} />
@@ -285,37 +360,48 @@ const CorrelationGraph = ({ logs, chain, rValue, mode, allLogs, allVars, varColo
         </defs>
         <CartesianGrid {...gridStyle} />
         <XAxis
-          type="number" dataKey="x" name={chain?.var1Name}
+          type="number" dataKey="x" name={chain?.variables[0].name}
           tick={axisStyle} axisLine={axisLine} tickLine={false}
-          label={{ value: `${chain?.var1Icon ?? '📊'} ${chain?.var1Name} (${chain?.var1Unit || ''})`, position: 'insideBottom', offset: -12, fill: '#f59e0b', fontSize: 11 }}
+          label={{ value: `${chain?.variables[0].icon ?? '📊'} ${chain?.variables[0].name} (${chain?.variables[0].unit || ''})`, position: 'insideBottom', offset: -14, fill: '#f59e0b', fontSize: 12 }}
         />
         <YAxis
-          type="number" dataKey="y" name={chain?.var2Name}
+          type="number" dataKey="y" name={chain?.variables[1].name}
           tick={axisStyle} axisLine={axisLine} tickLine={false}
-          label={{ value: `${chain?.var2Icon ?? '📈'} ${chain?.var2Name}`, angle: -90, position: 'insideLeft', fill: '#10b981', fontSize: 11 }}
+          domain={[0, 'auto']}
         />
+        {chain?.variables[2] && (
+          <ZAxis
+            type="number" dataKey="z" name={chain.variables[2].name}
+            range={[40, 600]} domain={[zMin, zMax]}
+          />
+        )}
         <Tooltip content={<ScatterTip chain={chain} />} cursor={false} />
 
-        {/* Trend line with glow */}
-        <Scatter
-          name="_trend" data={trendData}
-          line={{ stroke: lineColor, strokeWidth: 2, strokeDasharray: '6 4', opacity: 0.6 }}
-          shape={() => null} legendType="none"
-        />
-        {/* Trend line glow shadow */}
-        <Scatter
-          name="_trendglow" data={trendData}
-          line={{ stroke: lineColor, strokeWidth: 6, opacity: 0.1 }}
-          shape={() => null} legendType="none"
-        />
+        {/* Trend line with glow (hide if 3D bubble chart) */}
+        {!chain?.var3Name && (
+          <>
+            <Scatter
+              name="_trend" data={trendData}
+              line={{ stroke: lineColor, strokeWidth: 2, strokeDasharray: '6 4', opacity: 0.6 }}
+              shape={() => null} legendType="none"
+            />
+            {/* Trend line glow shadow */}
+            <Scatter
+              name="_trendglow" data={trendData}
+              line={{ stroke: lineColor, strokeWidth: 6, opacity: 0.1 }}
+              shape={() => null} legendType="none"
+            />
+          </>
+        )}
         {/* Data points */}
         <Scatter
           name="Data" data={scatterData}
-          shape={(props) => <Dot {...props} fill="#f59e0b" />}
+          shape={(props) => <Dot {...props} fill="#f59e0b" is3D={!!chain?.var3Name} zMin={zMin} zMax={zMax} />}
           animationDuration={1200}
         />
       </ScatterChart>
     </ResponsiveContainer>
+    </div>
   );
 };
 

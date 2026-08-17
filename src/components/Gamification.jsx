@@ -1,62 +1,53 @@
 import React, { useMemo } from 'react';
 
-// Helpers for date manipulation
-const getDaysAgo = (n) => {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
-
 const formatDate = (date) => {
-  return date.toISOString().split('T')[0];
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 };
 
-/**
- * Calculates current and longest streaks based on an array of date strings.
- * Dates should be in 'YYYY-MM-DD' format.
- */
 export const calculateStreaks = (dateStrings) => {
   if (!dateStrings || dateStrings.length === 0) return { current: 0, longest: 0, today: false };
 
-  // Unique, sorted dates (newest first)
-  const uniqueDates = [...new Set(dateStrings)].sort((a, b) => b.localeCompare(a));
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // Parse all dates and set to midnight local time
+  const dates = dateStrings.map(ds => {
+    // Parse "YYYY-MM-DD" reliably into local time
+    const parts = ds.split('-');
+    if (parts.length !== 3) return 0;
+    const dateObj = new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, parseInt(parts[2]));
+    dateObj.setHours(0, 0, 0, 0);
+    return dateObj.getTime();
+  }).filter(t => t > 0);
+
+  // Unique and sorted descending (newest first)
+  const uniqueTimes = [...new Set(dates)].sort((a, b) => b - a);
   
-  const todayStr = formatDate(new Date());
-  const yesterdayStr = formatDate(getDaysAgo(1));
+  const todayTime = today.getTime();
+  const yesterdayTime = todayTime - 86400000;
 
   let currentStreak = 0;
   let longestStreak = 0;
   let loggedToday = false;
 
-  // Check if they logged today or yesterday to see if streak is active
-  let activeDate = new Date();
-  activeDate.setHours(0, 0, 0, 0);
-
-  if (uniqueDates[0] === todayStr) {
+  if (uniqueTimes[0] === todayTime) {
     loggedToday = true;
-  } else if (uniqueDates[0] !== yesterdayStr) {
-    // Streak is broken (didn't log today or yesterday)
-    currentStreak = 0;
   }
 
-  // Calculate streaks
+  // Calculate longest streak
+  const ascendingTimes = [...uniqueTimes].sort((a, b) => a - b);
   let tempStreak = 0;
-  let lastDateObj = null;
+  let lastTime = null;
 
-  // Sort oldest to newest for easier longest streak calculation
-  const ascendingDates = [...uniqueDates].sort((a, b) => a.localeCompare(b));
-
-  for (let i = 0; i < ascendingDates.length; i++) {
-    const currObj = new Date(ascendingDates[i]);
-    currObj.setHours(0, 0, 0, 0);
-
-    if (!lastDateObj) {
+  for (let i = 0; i < ascendingTimes.length; i++) {
+    const currTime = ascendingTimes[i];
+    if (!lastTime) {
       tempStreak = 1;
     } else {
-      const diffTime = Math.abs(currObj - lastDateObj);
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
+      const diffDays = Math.round((currTime - lastTime) / 86400000);
       if (diffDays === 1) {
         tempStreak++;
       } else if (diffDays > 1) {
@@ -64,19 +55,15 @@ export const calculateStreaks = (dateStrings) => {
         tempStreak = 1;
       }
     }
-    lastDateObj = currObj;
+    lastTime = currTime;
   }
   if (tempStreak > longestStreak) longestStreak = tempStreak;
 
-  // For current streak, count backwards from newest
-  if (uniqueDates[0] === todayStr || uniqueDates[0] === yesterdayStr) {
+  // Calculate current streak
+  if (uniqueTimes[0] === todayTime || uniqueTimes[0] === yesterdayTime) {
     let curr = 1;
-    for (let i = 0; i < uniqueDates.length - 1; i++) {
-      const d1 = new Date(uniqueDates[i]);
-      const d2 = new Date(uniqueDates[i + 1]);
-      d1.setHours(0, 0, 0, 0); d2.setHours(0, 0, 0, 0);
-      const diffDays = Math.round((d1 - d2) / (1000 * 60 * 60 * 24));
-      
+    for (let i = 0; i < uniqueTimes.length - 1; i++) {
+      const diffDays = Math.round((uniqueTimes[i] - uniqueTimes[i + 1]) / 86400000);
       if (diffDays === 1) {
         curr++;
       } else {
@@ -95,15 +82,16 @@ export const StreakWidget = ({ current, longest, today }) => {
 
   return (
     <div className="streak-widget fade-up" style={{
-      display: 'flex', gap: '16px', background: 'var(--surface)',
+      display: 'flex', gap: '20px', background: 'var(--surface)',
       border: `1px solid ${isHot ? 'var(--amber)' : 'var(--border)'}`,
-      padding: '16px 20px', borderRadius: 'var(--r-lg)',
+      padding: '24px', borderRadius: 'var(--r-lg)',
       boxShadow: isHot ? '0 0 24px rgba(245,158,11,0.1)' : 'none',
       transition: 'all 0.3s ease',
       alignItems: 'center'
     }}>
       <div style={{
-        fontSize: '2.5rem', filter: isHot ? 'drop-shadow(0 0 8px rgba(245,158,11,0.5))' : 'grayscale(1)',
+        fontSize: '2.5rem', filter: isHot ? 'drop-shadow(0 0 8px rgba(245,158,11,0.5))' : 'none',
+        opacity: isHot ? 1 : 0.4,
         transform: isHot ? 'scale(1.1)' : 'scale(1)', transition: 'all 0.3s ease'
       }}>
         🔥
@@ -172,7 +160,7 @@ export const ActivityHeatmap = ({ allLogDates = [] }) => {
   return (
     <div className="heatmap-widget fade-up" style={{
       background: 'var(--surface)', border: '1px solid var(--border)',
-      padding: '16px 20px', borderRadius: 'var(--r-lg)',
+      padding: '24px', borderRadius: 'var(--r-lg)',
       overflowX: 'auto', WebkitOverflowScrolling: 'touch',
     }}>
       <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-3)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>

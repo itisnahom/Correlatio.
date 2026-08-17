@@ -55,11 +55,11 @@
   --shadow-lg: 0 20px 60px rgba(0,0,0,0.75);
 
   /* Radii */
-  --r-xs:   6px;
-  --r-sm:   10px;
-  --r-md:   14px;
-  --r-lg:   18px;
-  --r-xl:   24px;
+  --r-xs:   8px;
+  --r-sm:   12px;
+  --r-md:   16px;
+  --r-lg:   20px;
+  --r-xl:   28px;
   --r-full: 9999px;
 
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -106,12 +106,14 @@ body::before {
    TYPOGRAPHY
    ============================================================ */
 h1, h2, h3, h4, h5 {
+  font-family: 'Space Grotesk', sans-serif;
   font-weight: 600;
-  letter-spacing: -0.025em;
-  line-height: 1.2;
+  letter-spacing: -0.035em;
+  line-height: 1.15;
   color: var(--text-1);
+  margin-bottom: 0.5em;
 }
-p { color: var(--text-2); line-height: 1.65; }
+p { color: var(--text-2); line-height: 1.65; margin-bottom: 1em; }
 
 .font-display { font-family: 'Space Grotesk', sans-serif; }
 
@@ -136,9 +138,9 @@ p { color: var(--text-2); line-height: 1.65; }
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  transition: border-color 0.4s ease, box-shadow 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
 }
 .card::before {
@@ -152,13 +154,13 @@ p { color: var(--text-2); line-height: 1.65; }
 }
 .card-interactive {
   cursor: pointer;
-  transition: border-color 0.3s, box-shadow 0.3s, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: border-color 0.4s ease, box-shadow 0.4s ease, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .card-interactive:hover::before { opacity: 1; }
 .card-interactive:hover {
-  border-color: transparent;
+  border-color: var(--border-bright);
   box-shadow: var(--shadow-md);
-  transform: translateY(-6px) scale(1.015);
+  transform: translateY(-4px) scale(1.01);
 }
 
 /* ============================================================
@@ -225,19 +227,19 @@ p { color: var(--text-2); line-height: 1.65; }
   background: rgba(0,0,0,0.3);
   border: 1px solid var(--border);
   color: var(--text-1);
-  padding: 11px 14px;
+  padding: 12px 16px;
   border-radius: var(--r-sm);
   font-family: inherit;
-  font-size: 0.9rem;
+  font-size: 0.95rem;
   width: 100%;
-  transition: all 0.25s ease;
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
 }
 .input::placeholder { color: var(--text-3); }
 .input:focus {
   outline: none;
   border-color: var(--amber);
-  box-shadow: 0 0 0 3px rgba(245,158,11,0.1);
-  animation: glow-pulse 3s infinite;
+  box-shadow: 0 0 0 4px rgba(245,158,11,0.15);
+  background: rgba(0,0,0,0.5);
 }
 
 .input-label {
@@ -322,8 +324,8 @@ p { color: var(--text-2); line-height: 1.65; }
 }
 
 @keyframes glow-pulse {
-  0%, 100% { box-shadow: 0 0 15px rgba(245,158,11,0.05); }
-  50% { box-shadow: 0 0 25px rgba(245,158,11,0.25); }
+  0%, 100% { box-shadow: 0 0 15px rgba(245,158,11,0.08); }
+  50% { box-shadow: 0 0 25px rgba(245,158,11,0.18); }
 }
 
 @keyframes slide-in-right {
@@ -392,10 +394,27 @@ p { color: var(--text-2); line-height: 1.65; }
 /* ============================================================
    SCROLLBAR
    ============================================================ */
-::-webkit-scrollbar { width: 5px; }
+::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: var(--text-3); }
+::-webkit-scrollbar-thumb { background: rgba(255,252,245,0.1); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,252,245,0.2); }
+
+/* ============================================================
+   GLASS MODAL OVERLAY
+   ============================================================ */
+.glass-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+  animation: fadeIn 0.3s ease both;
+}
 
 /* ============================================================
    DIVIDER

@@ -27,7 +27,7 @@ const VariablePicker = ({ label, value, onChange }) => {
 
       {/* Type Grid */}
       <div className="var-picker-grid">
-        {VARIABLE_TYPES.map(type => (
+        {VARIABLE_TYPES.filter(t => t.id !== 'custom').map(type => (
           <button
             key={type.id}
             type="button"
@@ -39,6 +39,17 @@ const VariablePicker = ({ label, value, onChange }) => {
           </button>
         ))}
       </div>
+
+      {/* Custom Button Separated */}
+      <button
+        type="button"
+        className={`var-type-tile custom-tile${selectedType === 'custom' ? ' selected' : ''}`}
+        onClick={() => handleTypeSelect('custom')}
+        style={{ width: '100%', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', background: 'var(--bg-1)' }}
+      >
+        <span className="var-type-tile-icon">✍️</span>
+        <span className="var-type-tile-label">Custom Variable</span>
+      </button>
 
       {/* Name + Unit */}
       {selectedType && (

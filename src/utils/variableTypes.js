@@ -1,6 +1,7 @@
 // All available variable types with icons and units
 export const VARIABLE_TYPES = [
   { id: 'hours',     icon: '⏱️',  label: 'Hours',      unit: 'hrs',     placeholder: 'e.g. Hours of sleep' },
+  { id: 'boolean',   icon: '✔️',  label: 'Yes/No',     unit: 'bool',    placeholder: 'e.g. Meditated?' },
   { id: 'cups',      icon: '☕',  label: 'Cups',       unit: 'cups',    placeholder: 'e.g. Cups of coffee' },
   { id: 'rating',    icon: '⭐',  label: 'Rating',     unit: '/10',     placeholder: 'e.g. Mood rating' },
   { id: 'pages',     icon: '📖',  label: 'Pages',      unit: 'pages',   placeholder: 'e.g. Pages read' },

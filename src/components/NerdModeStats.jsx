@@ -2,13 +2,13 @@ import React, { useState } from 'react';
 import { interpretCorrelation, analyzePattern } from '../utils/statistics';
 import { generateAiInsight } from '../utils/ai';
 
-const NerdModeStats = ({ rValue, n, chain, logs }) => {
+const NerdModeStats = ({ rValue, n, chain, logs, selectedPair = [0, 1] }) => {
   const isNull = rValue === null || isNaN(rValue);
   
   let xVals = [], yVals = [];
   if (logs) {
-    xVals = logs.map(l => l.val1);
-    yVals = logs.map(l => l.val2);
+    xVals = logs.map(l => l.values[selectedPair[0]]);
+    yVals = logs.map(l => l.values[selectedPair[1]]);
   }
   const pattern = logs ? analyzePattern(xVals, yVals) : { type: 'linear', linearR: rValue };
   
@@ -29,13 +29,16 @@ const NerdModeStats = ({ rValue, n, chain, logs }) => {
   const getInsight = () => {
     if (isNull) return 'Not enough variation to compute statistics.';
     
+    const varA = chain?.variables[selectedPair[0]]?.name;
+    const varB = chain?.variables[selectedPair[1]]?.name;
+
     if (isCurved) {
-      return `Fascinating! The data shows a ${pattern.type === 'u-shaped' ? 'U-shaped (biphasic)' : 'inverted U-shaped'} curve rather than a straight line. This means ${chain?.var1Name} affects ${chain?.var2Name} differently at low vs. high extremes.`;
+      return `Fascinating! The data shows a ${pattern.type === 'u-shaped' ? 'U-shaped (biphasic)' : 'inverted U-shaped'} curve rather than a straight line. This means ${varA} affects ${varB} differently at low vs. high extremes.`;
     }
     
-    if (absR >= 0.8) return `An exceptionally tight relationship. ${chain?.var1Name} is a powerful predictor of ${chain?.var2Name} — ${(rSquared * 100).toFixed(1)}% of its variance is explained.`;
-    if (absR >= 0.5) return `A meaningful signal. ${chain?.var1Name} noticeably predicts ${chain?.var2Name}, though other factors matter too.`;
-    if (absR >= 0.3) return `A weak but real pattern is forming. More data will clarify if ${chain?.var1Name} genuinely affects ${chain?.var2Name}.`;
+    if (absR >= 0.8) return `An exceptionally tight relationship. ${varA} is a powerful predictor of ${varB} — ${(rSquared * 100).toFixed(1)}% of its variance is explained.`;
+    if (absR >= 0.5) return `A meaningful signal. ${varA} noticeably predicts ${varB}, though other factors matter too.`;
+    if (absR >= 0.3) return `A weak but real pattern is forming. More data will clarify if ${varA} genuinely affects ${varB}.`;
     return `No clear linear relationship yet. These variables may be independent, or you may need more data to see the signal.`;
   };
 
@@ -116,7 +119,16 @@ const NerdModeStats = ({ rValue, n, chain, logs }) => {
         
         {aiInsight && !aiLoading && (
           <div className="insight-card fade-in" style={{ background: 'rgba(56, 189, 248, 0.05)', borderColor: 'rgba(56, 189, 248, 0.2)', color: 'var(--text-1)' }}>
-            🤖 <strong>Gemini says:</strong> {aiInsight}
+            <div style={{ marginBottom: '12px', fontSize: '1.2rem' }}>🤖 <strong>Gemini says:</strong></div>
+            {aiInsight.split('\n\n').map((paragraph, i) => (
+              <p key={i} style={{ marginBottom: '12px', lineHeight: 1.6, fontSize: '0.9rem' }}>
+                {paragraph.split(/(\*\*.*?\*\*)/).map((part, j) => 
+                  part.startsWith('**') && part.endsWith('**') 
+                    ? <strong key={j} style={{ color: 'var(--emerald)' }}>{part.slice(2, -2)}</strong> 
+                    : part
+                )}
+              </p>
+            ))}
           </div>
         )}
       </div>
