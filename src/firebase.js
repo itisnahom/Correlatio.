@@ -5,7 +5,7 @@ import { getFirestore } from 'firebase/firestore';
 // Your web app's Firebase configuration
 // REPLACE THIS with your actual Firebase project config later
 const firebaseConfig = {
-  apiKey: "AIzaSyAmJ2Nh6QyAAm_B2adpIT2h1tOXR-AbwxA",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "YOUR_API_KEY",
   authDomain: "correlatio-f4986.firebaseapp.com",
   projectId: "correlatio-f4986",
   storageBucket: "correlatio-f4986.firebasestorage.app",
