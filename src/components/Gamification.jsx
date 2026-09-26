@@ -119,6 +119,9 @@ export const ActivityHeatmap = ({ allLogDates = [] }) => {
   // Show 14 weeks (98 days) to fit well on mobile/desktop
   const WEEKS = 14;
   const TOTAL_DAYS = WEEKS * 7;
+
+  const totalLogs = allLogDates.length;
+  const activeDays = new Set(allLogDates).size;
   
   const heatmapData = useMemo(() => {
     // Count logs per day
@@ -157,14 +160,34 @@ export const ActivityHeatmap = ({ allLogDates = [] }) => {
     return 'rgba(16, 185, 129, 1)';
   };
 
+  const legendColors = [
+    'rgba(255,252,245,0.03)',
+    'rgba(16, 185, 129, 0.3)',
+    'rgba(16, 185, 129, 0.6)',
+    'rgba(16, 185, 129, 1)',
+  ];
+
   return (
-    <div className="heatmap-widget fade-up" style={{
+    <div className="heatmap-widget fade-up d3" style={{
       background: 'var(--surface)', border: '1px solid var(--border)',
-      padding: '24px', borderRadius: 'var(--r-lg)',
+      padding: '20px', borderRadius: 'var(--r-lg)',
       overflowX: 'auto', WebkitOverflowScrolling: 'touch',
+      marginBottom: '28px',
     }}>
-      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-3)', marginBottom: '12px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-        Activity Overview
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+        <span style={{ fontSize: '0.68rem', fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+          Activity
+        </span>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <span style={{ fontSize: '0.78rem' }}>
+            <strong style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: 'var(--text-1)' }}>{totalLogs}</strong>
+            <span style={{ color: 'var(--text-3)', marginLeft: '3px', fontSize: '0.7rem' }}>logs</span>
+          </span>
+          <span style={{ fontSize: '0.78rem' }}>
+            <strong style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: 'var(--text-1)' }}>{activeDays}</strong>
+            <span style={{ color: 'var(--text-3)', marginLeft: '3px', fontSize: '0.7rem' }}>days</span>
+          </span>
+        </div>
       </div>
       
       <div style={{ display: 'flex', gap: '4px' }}>
@@ -173,19 +196,32 @@ export const ActivityHeatmap = ({ allLogDates = [] }) => {
             {week.map((day, dIdx) => (
               <div 
                 key={dIdx} 
-                title={`${day.date}: ${day.count} logs`}
+                title={`${day.date}: ${day.count} log${day.count !== 1 ? 's' : ''}`}
                 style={{
-                  width: '12px', height: '12px', borderRadius: '3px',
+                  width: '13px', height: '13px', borderRadius: '3px',
                   background: getColor(day.count),
+                  border: `0.5px solid ${day.count > 0 ? 'rgba(16,185,129,0.2)' : 'rgba(255,252,245,0.04)'}`,
                   transition: 'transform 0.2s, background 0.2s',
                   cursor: 'crosshair',
                 }}
-                onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.2)'; }}
+                onMouseEnter={e => { e.currentTarget.style.transform = 'scale(1.3)'; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = 'scale(1)'; }}
               />
             ))}
           </div>
         ))}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '10px' }}>
+        <span style={{ fontSize: '0.62rem', color: 'var(--text-3)' }}>Less</span>
+        {legendColors.map((c, i) => (
+          <div key={i} style={{
+            width: '10px', height: '10px', borderRadius: '2px',
+            background: c,
+            border: '0.5px solid rgba(255,252,245,0.06)',
+          }} />
+        ))}
+        <span style={{ fontSize: '0.62rem', color: 'var(--text-3)' }}>More</span>
       </div>
     </div>
   );

@@ -1,5 +1,7 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { signInWithGoogle, logout } from '../firebase';
+import { CheckSquare, Square } from 'lucide-react';
 
 const GoogleIcon = () => (
   <svg width="17" height="17" viewBox="0 0 18 18" fill="none">
@@ -25,9 +27,15 @@ export const CorrelatioLogo = ({ size = 22 }) => (
 );
 
 const Auth = ({ user }) => {
-  const [isLoggingIn, setIsLoggingIn] = React.useState(false);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [agreed, setAgreed] = useState(false);
+  const [showError, setShowError] = useState(false);
 
   const handleLogin = async () => {
+    if (!agreed) {
+      setShowError(true);
+      return;
+    }
     if (isLoggingIn) return;
     setIsLoggingIn(true);
     try { 
@@ -106,10 +114,39 @@ const Auth = ({ user }) => {
         </p>
       </div>
 
-      <div className="card login-card">
-        <h3>Get started for free</h3>
-        <p>Sign in to create and track your first Habit Chain</p>
-        <button className="btn-google" onClick={handleLogin} disabled={isLoggingIn} style={{ opacity: isLoggingIn ? 0.7 : 1, cursor: isLoggingIn ? 'not-allowed' : 'pointer' }}>
+      <div className="card login-card" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '380px', width: '100%', padding: '32px' }}>
+        <h3 style={{ marginBottom: '8px' }}>Get started for free</h3>
+        <p style={{ marginBottom: '24px', fontSize: '0.9rem', color: 'var(--text-3)' }}>Sign in to create and track your first Thread</p>
+        
+        <div 
+          onClick={() => { setAgreed(!agreed); setShowError(false); }}
+          style={{ 
+            display: 'flex', alignItems: 'flex-start', gap: '10px', 
+            cursor: 'pointer', textAlign: 'left', marginBottom: '24px',
+            padding: '12px', borderRadius: 'var(--r-md)',
+            background: showError ? 'rgba(244, 63, 94, 0.08)' : 'rgba(255,252,245,0.03)',
+            border: `1px solid ${showError ? 'var(--rose)' : 'transparent'}`,
+            transition: 'all 0.2s'
+          }}
+        >
+          <div style={{ color: agreed ? 'var(--emerald)' : 'var(--text-3)', marginTop: '2px' }}>
+            {agreed ? <CheckSquare size={18} /> : <Square size={18} />}
+          </div>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-2)', lineHeight: '1.4' }}>
+            By continuing, I acknowledge that I have read and agree to Correlatio's <Link to="/terms" style={{ color: 'var(--amber)', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>Terms of Service</Link> and <Link to="/privacy" style={{ color: 'var(--amber)', textDecoration: 'none' }} onClick={(e) => e.stopPropagation()}>Privacy Policy</Link>.
+          </span>
+        </div>
+
+        <button 
+          className="btn-google" 
+          onClick={handleLogin} 
+          disabled={isLoggingIn} 
+          style={{ 
+            opacity: (isLoggingIn || !agreed) ? 0.7 : 1, 
+            cursor: isLoggingIn ? 'wait' : 'pointer',
+            width: '100%'
+          }}
+        >
           <GoogleIcon />
           {isLoggingIn ? 'Opening popup...' : 'Continue with Google'}
         </button>

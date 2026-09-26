@@ -3,15 +3,18 @@ import { Link, useNavigate } from 'react-router-dom';
 import { db } from '../firebase';
 import { collection, getDocs } from 'firebase/firestore';
 import { calculatePearsonCorrelation } from '../utils/statistics';
+import { FlaskConical, X, Zap, ArrowRight, Plus } from 'lucide-react';
 
-const Basket = ({ user }) => {
+const VAR_COLORS = ['#f59e0b', '#10b981', '#f43f5e', '#38bdf8', '#a78bfa'];
+
+const Lab = ({ user }) => {
   const navigate = useNavigate();
   const [threads, setThreads] = useState([]);
   const [allLogs, setAllLogs] = useState({});
   const [loading, setLoading] = useState(true);
 
   // Drag and drop state
-  const [basketEggs, setBasketEggs] = useState([]);
+  const [labSignals, setLabSignals] = useState([]);
   const [isDragOver, setIsDragOver] = useState(false);
 
   useEffect(() => { fetchAll(); }, []);
@@ -54,12 +57,10 @@ const Basket = ({ user }) => {
     return { ...log, values: [log.val1, log.val2] };
   };
 
-  const getLogValue = (log, index) => {
-    return log.values[index];
-  };
+  const getLogValue = (log, index) => log.values[index];
 
-  // Extract all unique variables (eggs)
-  const eggs = useMemo(() => {
+  // Extract all unique variables (signals)
+  const signals = useMemo(() => {
     const map = new Map();
     threads.forEach(ch => {
       const chNormalized = normalizeThread(ch);
@@ -77,208 +78,217 @@ const Basket = ({ user }) => {
   }, [threads]);
 
   // Drag and Drop handlers
-  const handleDragStart = (e, egg) => {
-    e.dataTransfer.setData('application/json', JSON.stringify(egg));
-    e.currentTarget.style.opacity = '0.5';
+  const handleDragStart = (e, signal) => {
+    e.dataTransfer.setData('application/json', JSON.stringify(signal));
+    e.currentTarget.style.opacity = '0.45';
+    e.currentTarget.style.transform = 'scale(0.96)';
   };
 
   const handleDragEnd = (e) => {
     e.currentTarget.style.opacity = '1';
+    e.currentTarget.style.transform = 'scale(1)';
   };
 
-  const handleDragOver = (e) => {
-    e.preventDefault();
-    setIsDragOver(true);
-  };
-
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    setIsDragOver(false);
-  };
+  const handleDragOver = (e) => { e.preventDefault(); setIsDragOver(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); setIsDragOver(false); };
 
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragOver(false);
     const data = e.dataTransfer.getData('application/json');
     if (data) {
-      const egg = JSON.parse(data);
-      if (!basketEggs.find(e => e.name === egg.name)) {
-        setBasketEggs(prev => [...prev, egg]);
+      const signal = JSON.parse(data);
+      if (!labSignals.find(s => s.name === signal.name)) {
+        setLabSignals(prev => [...prev, signal]);
       }
     }
   };
 
-  const clearBasket = () => setBasketEggs([]);
+  const removeSignal = (name) => setLabSignals(prev => prev.filter(s => s.name !== name));
+  const clearLab = () => setLabSignals([]);
 
-  // Compute relations for basket items
-  const basketResult = useMemo(() => {
-    if (basketEggs.length < 2) return null;
+  // Compute correlations for lab items
+  const labResult = useMemo(() => {
+    if (labSignals.length < 2) return null;
 
-    // 1. Gather all data points for these eggs keyed by Date
-    const dateMap = {}; // { '2023-10-01': { 'Sleep': 8, 'Focus': 4 } }
-    
-    basketEggs.forEach(egg => {
-      egg.sources.forEach(src => {
+    const dateMap = {};
+    labSignals.forEach(signal => {
+      signal.sources.forEach(src => {
         const logs = allLogs[src.threadId] || [];
         logs.forEach(log => {
           if (!log.dateString) return;
           const val = getLogValue(log, src.index);
           if (val !== null) {
             if (!dateMap[log.dateString]) dateMap[log.dateString] = {};
-            if (dateMap[log.dateString][egg.name] === undefined) {
-              dateMap[log.dateString][egg.name] = val;
+            if (dateMap[log.dateString][signal.name] === undefined) {
+              dateMap[log.dateString][signal.name] = val;
             }
           }
         });
       });
     });
 
-    // 2. Find intersecting dates
-    const validDates = Object.keys(dateMap).filter(date => 
-      basketEggs.every(egg => dateMap[date][egg.name] !== undefined)
+    const validDates = Object.keys(dateMap).filter(date =>
+      labSignals.every(s => dateMap[date][s.name] !== undefined)
     ).sort();
 
     if (validDates.length >= 3) {
-      // Calculate matrix
       const matrix = [];
-      for (let i = 0; i < basketEggs.length; i++) {
-        for (let j = i + 1; j < basketEggs.length; j++) {
-          const eggA = basketEggs[i];
-          const eggB = basketEggs[j];
-          const xData = validDates.map(d => dateMap[d][eggA.name]);
-          const yData = validDates.map(d => dateMap[d][eggB.name]);
+      for (let i = 0; i < labSignals.length; i++) {
+        for (let j = i + 1; j < labSignals.length; j++) {
+          const a = labSignals[i];
+          const b = labSignals[j];
+          const xData = validDates.map(d => dateMap[d][a.name]);
+          const yData = validDates.map(d => dateMap[d][b.name]);
           const r = calculatePearsonCorrelation(xData, yData);
-          matrix.push({ eggA, eggB, r });
+          matrix.push({ a, b, r });
         }
       }
       return { type: 'found', count: validDates.length, matrix, validDates, dateMap };
     } else {
       return { type: 'suggest', count: validDates.length, validDates, dateMap };
     }
-  }, [basketEggs, allLogs]);
+  }, [labSignals, allLogs]);
 
-  const getStrengthColor = (r) => {
-    if (r === null) return 'var(--text-3)';
-    const a = Math.abs(r);
-    if (a >= 0.6) return r > 0 ? 'var(--emerald)' : 'var(--rose)';
-    if (a >= 0.3) return r > 0 ? 'var(--corr-pos-text)' : 'var(--corr-neg-text)';
-    return 'var(--text-3)';
-  };
+  const getRLabel = (r) => r === null || isNaN(r) ? '—' : (r > 0 ? '+' : '') + Number(r).toFixed(2);
+  const getRClass = (r) => r === null || isNaN(r) ? 'none' : r > 0.1 ? 'pos' : r < -0.1 ? 'neg' : 'none';
 
-  if (loading) return <div className="loading-screen"><div className="spinner" /><span>Gathering your habits…</span></div>;
+  if (loading) return <div className="loading-screen"><div className="spinner" /><span>Loading your signals…</span></div>;
 
   return (
-    <div className="basket-page fade-up">
-      {/* Interactive Dropzone Hero */}
-      <div 
-        className={`basket-hero dropzone ${isDragOver ? 'drag-over' : ''} ${basketEggs.length > 0 ? 'has-items' : ''}`}
+    <div className="lab-page fade-up">
+
+      {/* ── Hero dropzone ── */}
+      <div
+        className={`lab-dropzone${isDragOver ? ' drag-over' : ''}${labSignals.length > 0 ? ' has-items' : ''}`}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
-        style={{
-          position: 'relative',
-          padding: '60px 20px',
-          textAlign: 'center',
-          background: 'var(--bg-2)',
-          borderRadius: '24px',
-          border: isDragOver ? '2px dashed var(--emerald)' : '2px dashed var(--border)',
-          transition: 'all 0.3s ease',
-          marginBottom: '40px',
-          overflow: 'hidden'
-        }}
       >
-        <div style={{ position: 'relative', zIndex: 2 }}>
-          <img src="/basket.svg" alt="Basket" style={{ width: '120px', height: '120px', objectFit: 'contain', filter: 'drop-shadow(0 10px 20px rgba(0,0,0,0.3))' }} />
-          <h1 className="basket-title" style={{ marginTop: '16px' }}>The Basket</h1>
-          
-          {basketEggs.length === 0 ? (
-            <p className="basket-subtitle">Drag and drop habits (eggs) here to discover their hidden connections.</p>
-          ) : (
-            <div style={{ marginTop: '24px' }}>
-              <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
-                {basketEggs.map((egg, i) => (
-                  <div key={i} className="egg-card slide-in-bottom" style={{ width: 'auto', padding: '8px 16px', background: 'rgba(255,255,255,0.1)' }}>
-                    {egg.icon} {egg.name}
-                  </div>
-                ))}
-              </div>
-              <button className="btn btn-ghost" style={{ marginTop: '16px', fontSize: '0.8rem' }} onClick={clearBasket}>Clear Basket</button>
+        {labSignals.length === 0 ? (
+          <div className="lab-dropzone-empty">
+            <div className="lab-icon-wrap">
+              <FlaskConical size={32} strokeWidth={1.5} color="var(--amber)" />
             </div>
-          )}
-        </div>
+            <h1 className="lab-title">Lab</h1>
+            <p className="lab-subtitle">
+              Drop any two habits below to instantly discover<br />their correlation across your history.
+            </p>
+          </div>
+        ) : (
+          <div className="lab-dropzone-active">
+            <div className="lab-dropped-signals">
+              {labSignals.map((s, i) => (
+                <div key={s.name} className="lab-signal-chip">
+                  <span className="lab-signal-dot" style={{ background: VAR_COLORS[i % VAR_COLORS.length] }} />
+                  <span className="lab-signal-name">{s.name}</span>
+                  <button className="lab-signal-remove" onClick={() => removeSignal(s.name)}>
+                    <X size={12} strokeWidth={2.5} />
+                  </button>
+                </div>
+              ))}
+              {labSignals.length < 3 && (
+                <div className="lab-signal-chip lab-signal-placeholder">
+                  <span style={{ color: 'var(--text-3)', fontSize: '0.78rem' }}>+ drop another signal</span>
+                </div>
+              )}
+            </div>
+            <button className="btn btn-ghost" style={{ marginTop: '20px', fontSize: '0.75rem', padding: '6px 14px' }} onClick={clearLab}>
+              Clear
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Basket Results */}
-      {basketResult && (
-        <div className="card fade-up" style={{ marginBottom: '40px', textAlign: 'center', background: 'rgba(16, 185, 129, 0.05)', borderColor: 'rgba(16, 185, 129, 0.2)' }}>
-          {basketResult.type === 'found' ? (
-            <div>
-              <h3 style={{ color: 'var(--emerald)', fontSize: '1.2rem', marginBottom: '8px' }}>Connection Found!</h3>
-              <p style={{ color: 'var(--text-2)', marginBottom: '20px' }}>Based on {basketResult.count} overlapping days across your tracking history, here is how they correlate.</p>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', alignItems: 'center', marginBottom: '24px' }}>
-                {basketResult.matrix.map((m, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '16px', background: 'var(--bg)', padding: '12px 24px', borderRadius: '12px' }}>
-                    <span>{m.eggA.icon} {m.eggA.name}</span>
-                    <span style={{ color: getStrengthColor(m.r), fontWeight: 'bold' }}>
-                      {m.r !== null && !isNaN(m.r) ? (m.r > 0 ? '+' : '') + m.r.toFixed(2) : 'No Data'}
-                    </span>
-                    <span>{m.eggB.icon} {m.eggB.name}</span>
-                  </div>
-                ))}
+      {/* ── Lab results ── */}
+      {labResult && (
+        <div className={`lab-result fade-up ${labResult.type}`}>
+          {labResult.type === 'found' ? (
+            <>
+              <div className="lab-result-header">
+                <Zap size={14} color="var(--amber)" />
+                <span>Based on <strong>{labResult.count}</strong> overlapping days</span>
               </div>
-              <button 
-                className="btn btn-amber" 
-                onClick={() => navigate('/', { state: { prefillVariables: basketEggs, prefillLogs: basketResult } })}
+              <div className="lab-matrix">
+                {labResult.matrix.map((m, i) => {
+                  const cls = getRClass(m.r);
+                  const rLabel = getRLabel(m.r);
+                  return (
+                    <div key={i} className="lab-matrix-row">
+                      <span className="lab-matrix-name">{m.a.name}</span>
+                      <div className="lab-matrix-score-wrap">
+                        <span className={`chain-r-number ${cls}`} style={{ fontSize: '1.4rem' }}>{rLabel}</span>
+                        <span className="lab-matrix-label">r</span>
+                      </div>
+                      <span className="lab-matrix-name">{m.b.name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+              <button
+                className="btn btn-amber"
+                style={{ marginTop: '8px' }}
+                onClick={() => navigate('/', { state: { prefillVariables: labSignals, prefillLogs: labResult } })}
               >
-                Track these together →
+                Track these together <ArrowRight size={14} />
               </button>
-            </div>
+            </>
           ) : (
-            <div>
-              <h3 style={{ color: 'var(--amber)', fontSize: '1.2rem', marginBottom: '8px' }}>Uncharted Territory!</h3>
-              <p style={{ color: 'var(--text-2)', marginBottom: '20px' }}>
-                {basketResult.count > 0 
-                  ? `You only have ${basketResult.count} overlapping data point(s) for these habits. We need at least 3 to run the correlation algorithm.` 
-                  : `You haven't tracked these habits on the same day yet.`}
+            <>
+              <div className="lab-result-header">
+                <span>Not enough overlap yet</span>
+              </div>
+              <p style={{ color: 'var(--text-2)', fontSize: '0.875rem', margin: '8px 0 20px' }}>
+                {labResult.count > 0
+                  ? `Only ${labResult.count} overlapping day${labResult.count !== 1 ? 's' : ''} — need at least 3 to run the algorithm.`
+                  : `You haven't tracked these signals on the same day yet.`}
               </p>
-              <button 
-                className="btn btn-amber" 
-                onClick={() => navigate('/', { state: { prefillVariables: basketEggs, prefillLogs: basketResult } })}
+              <button
+                className="btn btn-amber"
+                onClick={() => navigate('/', { state: { prefillVariables: labSignals, prefillLogs: labResult } })}
               >
-                + Track this Relationship
+                <Plus size={14} /> Start tracking this relationship
               </button>
-            </div>
+            </>
           )}
         </div>
       )}
 
-      {/* Eggs Grid (Draggable) */}
-      <div className="basket-section">
-        <div className="basket-section-header">
-          <span className="section-eyebrow">Your Habits</span>
-          <span className="basket-count">Drag these into the basket</span>
+      {/* ── Signals grid ── */}
+      <div className="lab-signals-section">
+        <div className="section-bar" style={{ marginBottom: '16px' }}>
+          <span className="section-eyebrow">Your Signals</span>
+          <span className="section-count">Drag into the lab to compare</span>
         </div>
-        
-        <div className="eggs-grid">
-          {eggs.map((egg, i) => (
-            <div 
-              key={egg.name} 
-              className="egg-card fade-up"
-              draggable
-              onDragStart={(e) => handleDragStart(e, egg)}
-              onDragEnd={handleDragEnd}
-              style={{ cursor: 'grab' }}
-            >
-              <div className="egg-icon">{egg.icon}</div>
-              <div className="egg-name">{egg.name}</div>
-              <div className="egg-unit">{egg.unit}</div>
-            </div>
-          ))}
+
+        <div className="signals-grid">
+          {signals.map((signal, i) => {
+            const inLab = labSignals.find(s => s.name === signal.name);
+            return (
+              <div
+                key={signal.name}
+                className={`signal-card fade-up${inLab ? ' in-lab' : ''}`}
+                draggable={!inLab}
+                onDragStart={(e) => handleDragStart(e, signal)}
+                onDragEnd={handleDragEnd}
+                style={{ cursor: inLab ? 'default' : 'grab', animationDelay: `${i * 40}ms` }}
+              >
+                <div className="signal-card-dot" style={{ background: VAR_COLORS[i % VAR_COLORS.length] }} />
+                <div className="signal-card-name">{signal.name}</div>
+                {signal.unit && <div className="signal-card-unit">{signal.unit}</div>}
+                <div className="signal-card-sources">
+                  {signal.sources.length} thread{signal.sources.length !== 1 ? 's' : ''}
+                </div>
+                {inLab && <div className="signal-in-lab-badge">in lab</div>}
+              </div>
+            );
+          })}
         </div>
       </div>
+
     </div>
   );
 };
 
-export default Basket;
+export default Lab;
+

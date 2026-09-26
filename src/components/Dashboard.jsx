@@ -9,6 +9,7 @@ import { getVarType, VARIABLE_TYPES } from '../utils/variableTypes';
 import VariablePicker from './VariablePicker';
 import { StreakWidget, ActivityHeatmap, calculateStreaks } from './Gamification';
 import { seedTestData } from '../utils/seed';
+import { Flame, BarChart3, CalendarDays, FlaskConical, Plus, X, ArrowRight, TrendingUp, TrendingDown } from 'lucide-react';
 
 const CARD_ACCENTS = [
   { stripe: 'linear-gradient(135deg,#f59e0b,#f97316)', iconBg: 'rgba(245,158,11,0.12)', glow: 'rgba(245,158,11,0.15)' },
@@ -241,29 +242,44 @@ const Dashboard = ({ user }) => {
     <>
     <div className="fade-up">
       <div className="dashboard-hero">
-        <p className="dashboard-greeting">
-          {greeting}, {firstName} <span style={{ WebkitTextFillColor: 'initial', color: 'initial' }}>✨</span>
-        </p>
-        <p className="dashboard-sub">
-          {threads.length === 0
-            ? 'Create your first Thread to start discovering hidden correlations.'
-            : `${threads.length} active thread${threads.length !== 1 ? 's' : ''}. Keep logging to strengthen your data.`}
-        </p>
+        <div className="dashboard-hero-row">
+          <div>
+            <p className="dashboard-greeting-label">{greeting},</p>
+            <p className="dashboard-greeting-name">{firstName}</p>
+          </div>
+          <button className="icon-btn" title="Seed test data" onClick={() => setShowSeedModal(true)}>
+            <span style={{ display: 'flex', alignItems: 'center' }}><FlaskConical size={18} strokeWidth={2.5} /></span>
+          </button>
+        </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '20px', marginBottom: '32px' }}>
-        <StreakWidget current={streaks.current} longest={streaks.longest} today={streaks.today} />
-        <ActivityHeatmap allLogDates={allLogDates} />
+      <div className="quick-stats-row fade-up d2">
+        <div className="quick-stat-pill">
+          <span className="quick-stat-icon" style={{ display: 'flex' }}><Flame size={16} color="var(--amber)" strokeWidth={2.5} /></span>
+          <span className="quick-stat-value">{streaks.current}</span>
+          <span className="quick-stat-label">day streak</span>
+        </div>
+        <div className="quick-stat-pill">
+          <span className="quick-stat-icon" style={{ display: 'flex' }}><BarChart3 size={16} color="var(--sky)" strokeWidth={2.5} /></span>
+          <span className="quick-stat-value">{allLogDates.length}</span>
+          <span className="quick-stat-label">total logs</span>
+        </div>
+        <div className="quick-stat-pill">
+          <span className="quick-stat-icon" style={{ display: 'flex' }}><CalendarDays size={16} color="var(--violet, #a78bfa)" strokeWidth={2.5} /></span>
+          <span className="quick-stat-value">{new Set(allLogDates).size}</span>
+          <span className="quick-stat-label">active days</span>
+        </div>
       </div>
+
+      <ActivityHeatmap allLogDates={allLogDates} />
 
       <div className="section-bar">
         <span className="section-eyebrow">Your Threads</span>
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <button className="btn btn-ghost" style={{ padding: '8px 12px', fontSize: '0.82rem' }} onClick={() => setShowSeedModal(true)}>
-            🧪 Seed Test Data
-          </button>
-          <button className="btn btn-amber" style={{ padding: '8px 16px', fontSize: '0.82rem' }} onClick={() => setShowModal(true)}>
-            + New Thread
+        <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
+          <span className="section-count">{threads.length} active</span>
+          <button className="btn btn-amber btn-sm" onClick={() => setShowModal(true)}>
+            <Plus size={16} strokeWidth={2.5} style={{ marginRight: '2px' }} />
+            New Thread
           </button>
         </div>
       </div>
@@ -277,41 +293,70 @@ const Dashboard = ({ user }) => {
           </div>
         )}
         {threads.map((thread, i) => {
-          const { stripe, iconBg, glow } = CARD_ACCENTS[i % CARD_ACCENTS.length];
+          const { stripe, glow } = CARD_ACCENTS[i % CARD_ACCENTS.length];
           const s = stats[thread.id] || {};
           const cls = getRClass(s.r);
           const rLabel = getRLabel(s.r);
           const vars = thread.variables || [];
+          const rVal = s.r ?? null;
+          const barPct = rVal !== null ? Math.abs(rVal) * 50 : 0;
+          const barLeft = rVal !== null && rVal >= 0 ? 50 : rVal !== null ? 50 - barPct : 50;
+          const barColor = cls === 'pos' ? 'var(--corr-pos)' : cls === 'neg' ? 'var(--corr-neg)' : 'var(--text-3)';
 
           return (
             <Link to={`/chain/${thread.id}`} key={thread.id} className={`chain-card fade-up d${Math.min(i + 1, 6)}`} style={{ '--card-glow': glow }}>
-              <div className="chain-card-stripe" style={{ background: stripe }} />
+              {/* Vertical left accent */}
+              <div className="chain-card-accent" style={{ background: stripe }} />
+
               <div className="chain-card-body">
-                <div className="chain-card-top">
-                  <div className="chain-icon-wrap" style={{ background: iconBg }}>
-                    {vars[0]?.icon ?? '📊'}
-                  </div>
-                  <div className={`r-badge ${cls}`}>{rLabel}</div>
+                {/* Thread name + log count row */}
+                <div className="chain-card-header">
+                  <span className="chain-card-name">{thread.name}</span>
+                  <span className="chain-card-count">{s.count ?? 0} log{(s.count ?? 0) !== 1 ? 's' : ''}</span>
                 </div>
-                <div className="chain-card-name">{thread.name}</div>
-                <div className="chain-card-vars">
-                  {vars.map((v, vi) => (
-                    <React.Fragment key={vi}>
-                      {vi > 0 && <span className="chain-card-sep">×</span>}
-                      <span style={{ color: VAR_COLORS[vi % VAR_COLORS.length] }}>{v.icon} {v.name}</span>
-                    </React.Fragment>
-                  ))}
-                </div>
-                <div className="chain-card-footer">
-                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <span className="chain-card-count">{s.count ?? 0} log{(s.count ?? 0) !== 1 ? 's' : ''}</span>
-                    {Math.abs(s.shift || 0) > 0.2 && (
-                      <span style={{ fontSize: '0.65rem', padding: '2px 6px', background: 'rgba(255,255,255,0.08)', borderRadius: '4px', color: s.shift > 0 ? 'var(--emerald)' : 'var(--rose)' }}>
-                        {s.shift > 0 ? '📈 Trending Up' : '⚡ Shift Detected'}
+
+                {/* Hero: correlation score */}
+                <div className="chain-r-hero">
+                  <span className={`chain-r-number ${cls}`}>{rLabel}</span>
+                  <div className="chain-r-meta">
+                    {Math.abs(s.shift || 0) > 0.2 ? (
+                      <span className="chain-r-trend" style={{ color: s.shift > 0 ? 'var(--emerald)' : 'var(--rose)' }}>
+                        {s.shift > 0
+                          ? <><TrendingUp size={11} style={{ display: 'inline', marginRight: 3 }} />trending up</>
+                          : <><TrendingDown size={11} style={{ display: 'inline', marginRight: 3 }} />shifting</>
+                        }
                       </span>
+                    ) : (
+                      <span className="chain-r-label-text">correlation</span>
                     )}
                   </div>
-                  <span className="chain-card-cta">Explore →</span>
+                </div>
+
+                {/* Correlation bar */}
+                <div className="chain-corr-bar-track">
+                  <div className="chain-corr-bar-center" />
+                  {rVal !== null && !isNaN(rVal) && (
+                    <div className="chain-corr-bar-fill" style={{
+                      left: `${barLeft}%`,
+                      width: `${barPct}%`,
+                      background: barColor,
+                    }} />
+                  )}
+                </div>
+
+                {/* Variable tags — colored dots, no emoji */}
+                <div className="chain-card-vars">
+                  {vars.map((v, vi) => (
+                    <span key={vi} className="chain-var-tag">
+                      <span className="chain-var-dot" style={{ background: VAR_COLORS[vi % VAR_COLORS.length] }} />
+                      {v.name}
+                    </span>
+                  ))}
+                </div>
+
+                {/* Footer CTA */}
+                <div className="chain-card-footer">
+                  <span className="chain-card-cta">Explore<ArrowRight size={13} /></span>
                 </div>
               </div>
             </Link>
@@ -319,7 +364,7 @@ const Dashboard = ({ user }) => {
         })}
 
         <button className="new-chain-tile" onClick={() => setShowModal(true)}>
-          <div className="new-chain-plus">+</div>
+          <div className="new-chain-plus"><Plus size={20} strokeWidth={2} /></div>
           <span className="new-chain-label">Track a new relationship</span>
         </button>
       </div>
@@ -332,7 +377,9 @@ const Dashboard = ({ user }) => {
           <div className="modal">
             <div className="modal-header">
               <span className="modal-title">New Thread</span>
-              <button className="modal-close" onClick={() => { setShowModal(false); }}>×</button>
+              <button className="modal-close" onClick={() => { setShowModal(false); }}>
+                <X size={18} strokeWidth={2.5} />
+              </button>
             </div>
 
             <form onSubmit={handleCreate}>
@@ -372,9 +419,9 @@ const Dashboard = ({ user }) => {
                         style={{
                           position: 'absolute', top: 0, right: 0,
                           background: 'none', border: 'none', color: 'var(--text-3)',
-                          cursor: 'pointer', fontSize: '1.1rem', padding: '4px 8px',
+                          cursor: 'pointer', padding: '10px',
                         }}
-                      >×</button>
+                      ><X size={16} strokeWidth={2.5} /></button>
                     )}
                   </div>
                 </React.Fragment>
@@ -387,7 +434,7 @@ const Dashboard = ({ user }) => {
                   onClick={addVariable}
                   style={{ width: '100%', borderRadius: '10px', padding: '10px', margin: '12px 0 4px', borderStyle: 'dashed' }}
                 >
-                  + Add another variable ({variables.length}/3)
+                  <Plus size={16} strokeWidth={2.5} style={{ marginRight: '4px' }} /> Add another variable ({variables.length}/3)
                 </button>
               )}
 
@@ -415,7 +462,9 @@ const Dashboard = ({ user }) => {
           <div className="modal">
             <div className="modal-header">
               <span className="modal-title">Seed Test Data</span>
-              <button className="modal-close" onClick={() => setShowSeedModal(false)}>×</button>
+              <button className="modal-close" onClick={() => setShowSeedModal(false)}>
+                <X size={18} strokeWidth={2.5} />
+              </button>
             </div>
             <div style={{ padding: '0 0 20px', color: 'var(--text-2)' }}>
               Are you sure you want to seed test data? This will create new threads with mock data. Test data will not affect your activity or streaks.
