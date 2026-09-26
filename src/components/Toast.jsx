@@ -15,13 +15,20 @@ export function useToast() {
 }
 
 const TYPE_STYLES = {
-  success: { bg: 'rgba(16,185,129,0.15)', border: 'rgba(16,185,129,0.35)', icon: '?', color: '#34d399' },
-  error:   { bg: 'rgba(244,63,94,0.12)',  border: 'rgba(244,63,94,0.35)',  icon: '??', color: '#fb7185' },
-  info:    { bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.35)', icon: '??', color: '#fbbf24' },
+  success: { bg: 'rgba(16,185,129,0.15)', border: 'rgba(16,185,129,0.35)', dot: '#10b981', glow: 'rgba(16,185,129,0.5)' },
+  error:   { bg: 'rgba(244,63,94,0.12)',  border: 'rgba(244,63,94,0.35)',  dot: '#fb7185', glow: 'rgba(244,63,94,0.5)' },
+  info:    { bg: 'rgba(56,189,248,0.12)', border: 'rgba(56,189,248,0.35)', dot: '#38bdf8', glow: 'rgba(56,189,248,0.5)' },
+  warning: { bg: 'rgba(245,158,11,0.12)', border: 'rgba(245,158,11,0.35)', dot: '#f59e0b', glow: 'rgba(245,158,11,0.5)' },
 };
 
 function Toast({ message, type, leaving }) {
   const s = TYPE_STYLES[type] || TYPE_STYLES.info;
+  
+  // Clean up any emojis that were hardcoded into the toast messages previously
+  const cleanMessage = typeof message === 'string' 
+    ? message.replace(/[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]/gu, '').trim()
+    : message;
+
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: '10px',
@@ -35,9 +42,11 @@ function Toast({ message, type, leaving }) {
       opacity: leaving ? 0 : 1,
       transform: leaving ? 'translateY(12px) scale(0.95)' : 'translateY(0) scale(1)',
       pointerEvents: 'none',
+      '--dot-color': s.dot,
+      '--glow-color': s.glow
     }}>
-      <span style={{ fontSize: '1.1rem' }}>{s.icon}</span>
-      <span>{message}</span>
+      <div className="pulsatile-dot" />
+      <span>{cleanMessage}</span>
     </div>
   );
 }

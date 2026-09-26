@@ -1,12 +1,17 @@
 import { db } from '../firebase';
-import { collection, addDoc, serverTimestamp, setDoc, doc } from 'firebase/firestore';
+import { collection, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
 
 export const seedTestData = async (uid) => {
   try {
+    const batch = writeBatch(db);
+
     // ----------------------------------------------------
     // Thread 1: 3-Variable Continuous Data
     // ----------------------------------------------------
-    const t1Ref = await addDoc(collection(db, `users/${uid}/chains`), {
+    const chainsRef = collection(db, `users/${uid}/chains`);
+    const t1Ref = doc(chainsRef);
+    
+    batch.set(t1Ref, {
       name: "Productivity Ecosystem",
       createdAt: serverTimestamp(),
       variables: [
@@ -19,6 +24,7 @@ export const seedTestData = async (uid) => {
     const today = new Date();
     
     // Generate 14 days of mock data for Thread 1
+    const logsRef = collection(db, `users/${uid}/chains/${t1Ref.id}/logs`);
     for (let i = 14; i >= 0; i--) {
       const d = new Date(today);
       d.setDate(d.getDate() - i);
@@ -32,7 +38,8 @@ export const seedTestData = async (uid) => {
       else if (cups <= 2) deepWork = 4 + Math.random() * 2;
       else deepWork = 3 + Math.random(); 
 
-      await addDoc(collection(db, `users/${uid}/chains/${t1Ref.id}/logs`), {
+      const logDoc = doc(logsRef);
+      batch.set(logDoc, {
         dateString,
         createdAt: d,
         values: [parseFloat(deepWork.toFixed(1)), cups, Math.round(sleepBase)],
@@ -40,36 +47,8 @@ export const seedTestData = async (uid) => {
       });
     }
 
-    // ----------------------------------------------------
-    // Thread 2: Yes/No (Boolean) Data
-    // ----------------------------------------------------
-    const t2Ref = await addDoc(collection(db, `users/${uid}/chains`), {
-      name: "Exercise Impact",
-      createdAt: serverTimestamp(),
-      variables: [
-        { name: 'Morning Run', typeId: 'boolean', icon: '🏃‍♂️', unit: 'bool' },
-        { name: 'Energy Level', typeId: 'score', icon: '🔋', unit: '/10' }
-      ]
-    });
-
-    // Generate 14 days of mock data for Thread 2
-    for (let i = 14; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      const dateString = d.toLocaleDateString('en-CA');
-
-      const ran = Math.random() > 0.5 ? 1 : 0; // 1 = Yes, 0 = No
-      const energy = ran === 1 
-        ? Math.floor(Math.random() * 3) + 8 // 8 to 10
-        : Math.floor(Math.random() * 4) + 4; // 4 to 7
-
-      await addDoc(collection(db, `users/${uid}/chains/${t2Ref.id}/logs`), {
-        dateString,
-        createdAt: d,
-        values: [ran, energy],
-        isTestData: true
-      });
-    }
+    // Commit all writes at once
+    await batch.commit();
 
     return true;
   } catch (err) {

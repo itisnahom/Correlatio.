@@ -2,15 +2,22 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { db } from '../firebase';
 import { collection, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
 import { useToast, ToastPortal } from './Toast';
+import { getVarType } from '../utils/variableTypes';
 
 const VAR_COLORS = ['#f59e0b', '#10b981', '#f43f5e', '#38bdf8', '#a78bfa'];
 
 const normalizeThread = (ch) => {
-  if (ch.variables) return ch;
-  return { ...ch, variables: [
+  let t = ch.variables ? ch : { ...ch, variables: [
     { name: ch.var1Name, typeId: ch.var1TypeId, icon: ch.var1Icon || '📊', unit: ch.var1Unit },
     { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit }
   ]};
+  t.variables = t.variables.map(v => {
+    // We must ensure Tree has access to getVarType, but it isn't imported yet!
+    // We'll fix imports in the next step.
+    const vType = getVarType(v.typeId);
+    return { ...v, icon: vType ? vType.icon : v.icon };
+  });
+  return t;
 };
 
 const normalizeLog = (log) => {

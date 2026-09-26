@@ -26,14 +26,18 @@ const getRClass = (r) => r == null || isNaN(r) ? 'none' : r > 0.1 ? 'pos' : r < 
 const getRLabel = (r) => r == null || isNaN(r) ? '—' : (r > 0 ? '+' : '') + Number(r).toFixed(2);
 
 const normalizeThread = (ch) => {
-  if (ch.variables) return ch;
-  return {
+  let t = ch.variables ? ch : {
     ...ch,
     variables: [
       { name: ch.var1Name, typeId: ch.var1TypeId, icon: ch.var1Icon || '📊', unit: ch.var1Unit },
       { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit },
     ],
   };
+  t.variables = t.variables.map(v => {
+    const vType = getVarType(v.typeId);
+    return { ...v, icon: vType ? vType.icon : v.icon };
+  });
+  return t;
 };
 
 const normalizeLog = (log) => {
@@ -48,8 +52,17 @@ const Dashboard = ({ user }) => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showSeedModal, setShowSeedModal] = useState(false);
+  const [showOverthinkWarning, setShowOverthinkWarning] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [prefillLogs, setPrefillLogs] = useState(null);
+  
+  const handleOpenCreateModal = () => {
+    if (threads.length >= 3) {
+      setShowOverthinkWarning(true);
+    } else {
+      setShowModal(true);
+    }
+  };
   
   useEffect(() => {
     if (location.state?.prefillLogs) {
@@ -179,7 +192,6 @@ const Dashboard = ({ user }) => {
         return {
           name: v.name,
           typeId: v.typeId,
-          icon: vType.icon,
           unit: v.unit || vType.unit,
         };
       });
@@ -236,8 +248,6 @@ const Dashboard = ({ user }) => {
   })();
   const firstName = user.displayName?.split(' ')[0] ?? 'there';
 
-  if (loading) return <div className="loading-screen"><div className="spinner" /><span>Loading…</span></div>;
-
   return (
     <>
     <div className="fade-up">
@@ -277,7 +287,7 @@ const Dashboard = ({ user }) => {
         <span className="section-eyebrow">Your Threads</span>
         <div style={{ display: 'flex', gap: '14px', alignItems: 'center' }}>
           <span className="section-count">{threads.length} active</span>
-          <button className="btn btn-amber btn-sm" onClick={() => setShowModal(true)}>
+          <button className="btn btn-amber btn-sm" onClick={handleOpenCreateModal}>
             <Plus size={16} strokeWidth={2.5} style={{ marginRight: '2px' }} />
             New Thread
           </button>
@@ -285,14 +295,42 @@ const Dashboard = ({ user }) => {
       </div>
 
       <div className="chains-grid">
-        {threads.length === 0 && (
-          <div className="card fade-up" style={{ padding: '64px 24px', textAlign: 'center', gridColumn: '1 / -1' }}>
-            <div className="float" style={{ fontSize: '3rem', marginBottom: '16px' }}>🧵</div>
-            <h3 style={{ marginBottom: '8px' }}>No threads yet</h3>
-            <p style={{ maxWidth: '400px', margin: '0 auto', fontSize: '0.9rem' }}>Create a thread to track the relationship between any two or three variables in your life.</p>
+        {loading ? (
+          <>
+            {[1, 2, 3].map(i => (
+              <div key={`skel-${i}`} className="chain-card fade-up" style={{ animationDelay: `${i * 0.1}s`, opacity: 0.7, pointerEvents: 'none' }}>
+                <div className="chain-card-accent" style={{ background: 'var(--border)' }} />
+                <div className="chain-card-body">
+                  <div className="chain-card-header">
+                    <div style={{ width: '60%', height: '16px', background: 'var(--surface-hover)', borderRadius: '4px' }} className="glow-pulse" />
+                    <div style={{ width: '20%', height: '12px', background: 'var(--surface-hover)', borderRadius: '4px' }} />
+                  </div>
+                  <div className="chain-r-value">
+                    <div style={{ width: '40%', height: '36px', background: 'var(--surface-hover)', borderRadius: '6px', margin: '8px 0' }} className="glow-pulse" />
+                  </div>
+                  <div className="chain-vars-row">
+                    <div style={{ width: '80px', height: '24px', background: 'var(--surface-hover)', borderRadius: '12px' }} />
+                    <div style={{ width: '80px', height: '24px', background: 'var(--surface-hover)', borderRadius: '12px' }} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </>
+        ) : threads.length === 0 ? (
+          <div className="fade-up" style={{ gridColumn: '1 / -1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '60px 20px', background: 'rgba(255,252,245,0.02)', borderRadius: 'var(--r-lg)', border: '1px dashed var(--border)', textAlign: 'center' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(245,158,11,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--amber)', marginBottom: '24px' }}>
+              <FlaskConical size={32} strokeWidth={1.5} />
+            </div>
+            <h3 style={{ fontSize: '1.25rem', marginBottom: '8px', color: 'var(--text-1)' }}>Your lab is empty</h3>
+            <p style={{ color: 'var(--text-3)', fontSize: '0.95rem', maxWidth: '300px', marginBottom: '24px', lineHeight: '1.5' }}>
+              Create your first Thread to start logging habits, tracking symptoms, and discovering hidden correlations.
+            </p>
+            <button className="btn btn-amber" onClick={handleOpenCreateModal}>
+              <Plus size={16} strokeWidth={2.5} style={{ marginRight: '6px' }} /> Create your first Thread
+            </button>
           </div>
-        )}
-        {threads.map((thread, i) => {
+        ) : (
+          threads.map((thread, i) => {
           const { stripe, glow } = CARD_ACCENTS[i % CARD_ACCENTS.length];
           const s = stats[thread.id] || {};
           const cls = getRClass(s.r);
@@ -361,9 +399,9 @@ const Dashboard = ({ user }) => {
               </div>
             </Link>
           );
-        })}
+        }))}
 
-        <button className="new-chain-tile" onClick={() => setShowModal(true)}>
+        <button className="new-chain-tile" onClick={handleOpenCreateModal}>
           <div className="new-chain-plus"><Plus size={20} strokeWidth={2} /></div>
           <span className="new-chain-label">Track a new relationship</span>
         </button>
@@ -480,6 +518,43 @@ const Dashboard = ({ user }) => {
               </button>
               <button className="btn btn-ghost" style={{ borderRadius: '10px', padding: '12px 18px' }} onClick={() => setShowSeedModal(false)}>
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Overthink Warning Modal */}
+      {showOverthinkWarning && (
+        <div className="glass-overlay" onClick={e => e.target === e.currentTarget && setShowOverthinkWarning(false)}>
+          <div className="modal scale-in" style={{ textAlign: 'center', padding: '32px 24px' }}>
+            <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(244,63,94,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--rose)', margin: '0 auto 24px' }}>
+              <Flame size={32} strokeWidth={1.5} />
+            </div>
+            <h3 style={{ fontSize: '1.4rem', marginBottom: '12px', color: 'var(--text-1)' }}>Whoa there, scientist!</h3>
+            <p style={{ color: 'var(--text-2)', fontSize: '0.95rem', lineHeight: '1.6', marginBottom: '28px', maxWidth: '320px', margin: '0 auto 28px' }}>
+              You already have <strong>{threads.length}</strong> active threads. <br/><br/>
+              It's great to be curious, but don't fall into the trap of over-analyzing every single detail of your life. Remember to actually <em>live</em> your life too!
+            </p>
+            <div className="form-actions" style={{ flexDirection: 'column', gap: '12px' }}>
+              <button 
+                type="button" 
+                className="btn btn-ghost" 
+                onClick={() => setShowOverthinkWarning(false)}
+                style={{ width: '100%', borderRadius: '10px', padding: '14px', background: 'var(--surface-hover)', color: 'var(--text-1)' }}
+              >
+                You're right, I'll go touch grass 🌱
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-ghost" 
+                onClick={() => {
+                  setShowOverthinkWarning(false);
+                  setShowModal(true);
+                }}
+                style={{ width: '100%', borderRadius: '10px', padding: '14px', fontSize: '0.85rem', opacity: 0.6 }}
+              >
+                I know what I'm doing, let me track anyway
               </button>
             </div>
           </div>

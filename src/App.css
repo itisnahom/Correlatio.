@@ -901,3 +901,15 @@
   .modal-actions { flex-direction: column-reverse; gap: 8px; }
   .modal-actions .btn { width: 100%; }
 }
+
+/* Pulsatile Radial Dot (Toast icons) */
+@keyframes radialGlowPulse {
+  0%, 100% { box-shadow: 0 0 6px 1px var(--glow-color); transform: scale(1); opacity: 0.9; }
+  50% { box-shadow: 0 0 14px 4px var(--glow-color); transform: scale(1.05); opacity: 1; }
+}
+.pulsatile-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background-color: var(--dot-color);
+  animation: radialGlowPulse 2.5s infinite ease-in-out;
+  flex-shrink: 0; margin-right: 4px; margin-left: 2px;
+}

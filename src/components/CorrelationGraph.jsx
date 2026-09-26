@@ -449,7 +449,7 @@ const CorrelationGraph = ({ logs, chain, rValue, mode, allLogs, allVars, varColo
           tickFormatter={var0IsBool ? boolTick : undefined}
           ticks={var0IsBool ? [0, 1] : undefined}
           domain={var0IsBool ? [-0.3, 1.3] : ['auto', 'auto']}
-          label={{ value: `${chain?.variables[0].icon ?? '📊'} ${chain?.variables[0].name}${var0IsBool ? '' : ` (${chain?.variables[0].unit || ''})`}`, position: 'insideBottom', offset: -14, fill: '#f59e0b', fontSize: 12 }}
+          label={{ value: `${chain?.variables[0].name}${var0IsBool ? '' : ` (${chain?.variables[0].unit || ''})`}`, position: 'insideBottom', offset: -14, fill: '#f59e0b', fontSize: 12 }}
         />
         <YAxis
           type="number" dataKey="y" name={chain?.variables[1].name}

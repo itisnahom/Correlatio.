@@ -10,6 +10,7 @@ import ExportCard, { EXPORT_THEMES } from './ExportCard';
 import ExportReport from './ExportReport';
 import { exportCanvasToPdf } from '../utils/pdfExport';
 import { calculatePearsonCorrelation, interpretCorrelation, calculatePValue, significanceLabel, trendDirection, booleanStreak, computeImpactStatement } from '../utils/statistics';
+import { getVarType } from '../utils/variableTypes';
 import { useToast, ToastPortal } from './Toast';
 
 const VAR_COLORS = ['#f59e0b', '#10b981', '#f43f5e', '#38bdf8', '#a78bfa'];
@@ -27,14 +28,18 @@ const getStrength = (r) => {
 
 // Normalize old format to new variables array
 const normalizeThread = (ch) => {
-  if (ch.variables) return ch;
-  return {
+  let t = ch.variables ? ch : {
     ...ch,
     variables: [
       { name: ch.var1Name, typeId: ch.var1TypeId, icon: ch.var1Icon || '📊', unit: ch.var1Unit },
       { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit }
     ]
   };
+  t.variables = t.variables.map(v => {
+    const vType = getVarType(v.typeId);
+    return { ...v, icon: vType ? vType.icon : v.icon };
+  });
+  return t;
 };
 
 const normalizeLog = (log) => {

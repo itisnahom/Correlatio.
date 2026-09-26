@@ -11,7 +11,9 @@ import Basket from './components/Basket';
 import Tree from './components/Tree';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
-import { Layers, FlaskConical, Network, LogOut, Menu } from 'lucide-react';
+import Poster from './components/Poster';
+import { Layers, FlaskConical, Network, LogOut, Menu, Download, UserX } from 'lucide-react';
+import { exportUserDataCSV, deleteUserAccount } from './utils/userManagement';
 import './App.css';
 
 function Navbar({ user }) {
@@ -81,6 +83,20 @@ function Navbar({ user }) {
                 </div>
               </div>
               <div className="nav-dropdown-divider" />
+              <button className="nav-dropdown-item" onClick={async () => {
+                setShowMenu(false);
+                await exportUserDataCSV(user.uid);
+              }}>
+                <Download size={14} strokeWidth={2} /> Export Data (CSV)
+              </button>
+              <button className="nav-dropdown-item" style={{ color: 'var(--rose)' }} onClick={async () => {
+                if (window.confirm("Are you sure you want to permanently delete your account and all data? This cannot be undone.")) {
+                  await deleteUserAccount(user.uid);
+                }
+              }}>
+                <UserX size={14} strokeWidth={2} /> Delete Account
+              </button>
+              <div className="nav-dropdown-divider" />
               <button className="nav-dropdown-item" onClick={handleLogout}>
                 <LogOut size={14} strokeWidth={2} /> Sign out
               </button>
@@ -122,6 +138,7 @@ function App() {
             <Route path="/tree" element={user ? <Tree user={user} /> : <Navigate to="/login" />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
+            <Route path="/poster" element={<Poster />} />
           </Routes>
         </div>
       </div>
