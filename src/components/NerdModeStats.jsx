@@ -10,6 +10,7 @@ import { generateAiInsight } from '../utils/ai';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, ReferenceLine,
 } from 'recharts';
+import StatExplanationModal, { createDoubleTapHandler } from './StatExplanationModal';
 
 const VAR_COLORS = ['#f59e0b', '#10b981', '#f43f5e', '#38bdf8', '#a78bfa'];
 
@@ -17,26 +18,55 @@ const TABS = ['Stats', 'Time Patterns', 'Lag Analysis'];
 
 // ─── Mini Components ──────────────────────────────────────────────────────────
 
-const StatCell = ({ label, value, color, sub }) => (
-  <div className="stat-cell">
-    <div className="stat-cell-label">{label}</div>
-    <div className="stat-cell-val" style={{ color: color || 'var(--text-1)' }}>{value}</div>
-    {sub && <div style={{ fontSize: '0.62rem', color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
-  </div>
-);
+const StatCell = ({ label, value, color, sub, topicId, onExplain }) => {
+  const doubleTap = onExplain && topicId ? createDoubleTapHandler(() => onExplain(topicId)) : {};
+  return (
+    <div
+      className="stat-cell"
+      {...doubleTap}
+      title={onExplain ? 'Click twice for detailed explanation' : undefined}
+      style={{
+        cursor: onExplain ? 'pointer' : 'default',
+        userSelect: 'none',
+        position: 'relative',
+        transition: 'border-color 0.2s, transform 0.15s',
+      }}
+      onMouseEnter={e => {
+        if (onExplain) e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)';
+      }}
+      onMouseLeave={e => {
+        if (onExplain) e.currentTarget.style.borderColor = '';
+      }}
+    >
+      <div className="stat-cell-label">{label}</div>
+      <div className="stat-cell-val" style={{ color: color || 'var(--text-1)' }}>{value}</div>
+      {sub && <div style={{ fontSize: '0.62rem', color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+};
 
-const SigBadge = ({ p }) => {
+const SigBadge = ({ p, onExplain }) => {
   if (p === null) return null;
   const sig = p < 0.05;
+  const doubleTap = onExplain ? createDoubleTapHandler((e) => {
+    e?.stopPropagation?.();
+    onExplain('pvalue');
+  }) : {};
   return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 5,
-      fontSize: '0.7rem', fontWeight: 600, padding: '3px 10px',
-      borderRadius: 99, marginLeft: 8,
-      background: sig ? 'rgba(16,185,129,0.1)' : 'rgba(160,155,140,0.1)',
-      border: `1px solid ${sig ? 'rgba(16,185,129,0.3)' : 'rgba(160,155,140,0.2)'}`,
-      color: sig ? 'var(--emerald)' : 'var(--text-3)',
-    }}>
+    <span
+      {...doubleTap}
+      title={onExplain ? 'Click twice to explain P-value significance' : undefined}
+      style={{
+        display: 'inline-flex', alignItems: 'center', gap: 5,
+        fontSize: '0.7rem', fontWeight: 600, padding: '3px 10px',
+        borderRadius: 99, marginLeft: 8,
+        cursor: onExplain ? 'pointer' : 'default',
+        userSelect: 'none',
+        background: sig ? 'rgba(16,185,129,0.1)' : 'rgba(160,155,140,0.1)',
+        border: `1px solid ${sig ? 'rgba(16,185,129,0.3)' : 'rgba(160,155,140,0.2)'}`,
+        color: sig ? 'var(--emerald)' : 'var(--text-3)',
+      }}
+    >
       {sig ? '🔬 Significant' : '⚠️ More data needed'}
     </span>
   );
@@ -44,7 +74,7 @@ const SigBadge = ({ p }) => {
 
 // ─── Tab A: Stats ─────────────────────────────────────────────────────────────
 
-const StatsTab = ({ rValue, n, chain, pattern, selectedPair }) => {
+const StatsTab = ({ rValue, n, chain, pattern, selectedPair, onExplain }) => {
   const isNull = rValue === null || isNaN(rValue);
   const absR = isNull ? 0 : Math.abs(rValue);
   const isCurved = pattern.type !== 'linear';
@@ -76,27 +106,37 @@ const StatsTab = ({ rValue, n, chain, pattern, selectedPair }) => {
   const qualityScore = Math.min(100, Math.round((Math.min(n, 30) / 30) * 70 + (absR > 0 ? 30 : 0)));
 
   const stats = [
-    { label: isCurved ? 'Curve Type' : "Pearson's r", value: isCurved ? (pattern.type === 'u-shaped' ? 'U-Shape' : 'Inverted U') : (isNull ? '—' : (rValue > 0 ? '+' : '') + rValue.toFixed(4)), color: isCurved ? 'var(--amber)' : rColor },
-    { label: 'R² (variance explained)', value: isNull ? '—' : (rSquared * 100).toFixed(1) + '%', color: 'var(--text-1)' },
-    { label: 'Sample size n', value: n, color: 'var(--text-1)', sub: n < 10 ? 'Low — collect more data' : n < 20 ? 'Getting reliable' : 'Good sample' },
-    { label: 'Strength', value: absR >= 0.8 ? 'Strong' : absR >= 0.5 ? 'Moderate' : absR >= 0.3 ? 'Weak' : 'Very weak', color: 'var(--text-1)' },
-    { label: 'Direction', value: isCurved ? 'Non-linear' : (isNull || absR < 0.1 ? 'None' : rValue > 0 ? 'Positive ↗' : 'Negative ↘'), color: isCurved ? 'var(--amber)' : rColor },
-    { label: 'Unexplained variance', value: isNull ? '—' : ((1 - rSquared) * 100).toFixed(1) + '%', color: 'var(--text-1)' },
+    { topicId: 'r', label: isCurved ? 'Curve Type' : "Pearson's r", value: isCurved ? (pattern.type === 'u-shaped' ? 'U-Shape' : 'Inverted U') : (isNull ? '—' : (rValue > 0 ? '+' : '') + rValue.toFixed(4)), color: isCurved ? 'var(--amber)' : rColor },
+    { topicId: 'r2', label: 'R² (variance explained)', value: isNull ? '—' : (rSquared * 100).toFixed(1) + '%', color: 'var(--text-1)' },
+    { topicId: 'n', label: 'Sample size n', value: n, color: 'var(--text-1)', sub: n < 10 ? 'Low — collect more data' : n < 20 ? 'Getting reliable' : 'Good sample' },
+    { topicId: 'strength', label: 'Strength', value: absR >= 0.8 ? 'Strong' : absR >= 0.5 ? 'Moderate' : absR >= 0.3 ? 'Weak' : 'Very weak', color: 'var(--text-1)' },
+    { topicId: 'direction', label: 'Direction', value: isCurved ? 'Non-linear' : (isNull || absR < 0.1 ? 'None' : rValue > 0 ? 'Positive ↗' : 'Negative ↘'), color: isCurved ? 'var(--amber)' : rColor },
+    { topicId: 'unexplained', label: 'Unexplained variance', value: isNull ? '—' : ((1 - rSquared) * 100).toFixed(1) + '%', color: 'var(--text-1)' },
   ];
+
+  const strengthBarDoubleTap = onExplain ? createDoubleTapHandler(() => onExplain('strength')) : {};
+  const pValDoubleTap = onExplain ? createDoubleTapHandler(() => onExplain('pvalue')) : {};
+  const ciDoubleTap = onExplain ? createDoubleTapHandler(() => onExplain('ci')) : {};
+  const qualityDoubleTap = onExplain ? createDoubleTapHandler(() => onExplain('quality')) : {};
 
   return (
     <div>
       {/* Stats grid */}
       <div className="stats-grid" style={{ marginBottom: 20 }}>
-        {stats.map(s => <StatCell key={s.label} {...s} />)}
+        {stats.map(s => <StatCell key={s.label} {...s} onExplain={onExplain} />)}
       </div>
 
       {/* Strength bar */}
       {!isNull && (
-        <div className="stat-bar-wrap">
+        <div
+          className="stat-bar-wrap"
+          {...strengthBarDoubleTap}
+          title={onExplain ? 'Click twice to explain correlation strength' : undefined}
+          style={{ cursor: onExplain ? 'pointer' : 'default', userSelect: 'none' }}
+        >
           <div className="stat-bar-label" style={{ display: 'flex', alignItems: 'center' }}>
             Correlation strength: <strong style={{ color: 'var(--text-1)', marginLeft: 4 }}>{(absR * 100).toFixed(0)}%</strong>
-            <SigBadge p={pVal} />
+            <SigBadge p={pVal} onExplain={onExplain} />
           </div>
           <div className="stat-bar-track">
             <div className="stat-bar-fill" style={{ width: `${absR * 100}%`, background: barGrad }} />
@@ -111,21 +151,51 @@ const StatsTab = ({ rValue, n, chain, pattern, selectedPair }) => {
       {/* P-value & CI */}
       {!isNull && (
         <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 16 }}>
-          <div style={{ flex: 1, minWidth: 140, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+          <div
+            {...pValDoubleTap}
+            title={onExplain ? 'Click twice for P-value explanation' : undefined}
+            style={{
+              flex: 1, minWidth: 140, background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 10, padding: '10px 14px', cursor: onExplain ? 'pointer' : 'default',
+              userSelect: 'none', transition: 'border-color 0.2s',
+            }}
+            onMouseEnter={e => { if (onExplain) e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; }}
+            onMouseLeave={e => { if (onExplain) e.currentTarget.style.borderColor = 'var(--border)'; }}
+          >
             <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', marginBottom: 4 }}>P-value (2-tailed)</div>
             <div style={{ fontSize: '0.85rem', fontWeight: 600, color: pVal !== null && pVal < 0.05 ? 'var(--emerald)' : 'var(--text-2)' }}>
               {pVal !== null ? significanceLabel(pVal) : '—'}
             </div>
           </div>
           {ci && (
-            <div style={{ flex: 1, minWidth: 140, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+            <div
+              {...ciDoubleTap}
+              title={onExplain ? 'Click twice for 95% Confidence Interval explanation' : undefined}
+              style={{
+                flex: 1, minWidth: 140, background: 'var(--surface)', border: '1px solid var(--border)',
+                borderRadius: 10, padding: '10px 14px', cursor: onExplain ? 'pointer' : 'default',
+                userSelect: 'none', transition: 'border-color 0.2s',
+              }}
+              onMouseEnter={e => { if (onExplain) e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; }}
+              onMouseLeave={e => { if (onExplain) e.currentTarget.style.borderColor = 'var(--border)'; }}
+            >
               <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', marginBottom: 4 }}>95% Confidence Interval</div>
               <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-1)' }}>
                 [{ci.lower > 0 ? '+' : ''}{ci.lower.toFixed(2)}, {ci.upper > 0 ? '+' : ''}{ci.upper.toFixed(2)}]
               </div>
             </div>
           )}
-          <div style={{ flex: 1, minWidth: 140, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+          <div
+            {...qualityDoubleTap}
+            title={onExplain ? 'Click twice for Data Quality explanation' : undefined}
+            style={{
+              flex: 1, minWidth: 140, background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 10, padding: '10px 14px', cursor: onExplain ? 'pointer' : 'default',
+              userSelect: 'none', transition: 'border-color 0.2s',
+            }}
+            onMouseEnter={e => { if (onExplain) e.currentTarget.style.borderColor = 'rgba(245,158,11,0.35)'; }}
+            onMouseLeave={e => { if (onExplain) e.currentTarget.style.borderColor = 'var(--border)'; }}
+          >
             <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', marginBottom: 6 }}>Data quality</div>
             <div style={{ background: 'var(--border)', borderRadius: 99, height: 6, overflow: 'hidden' }}>
               <div style={{ width: `${qualityScore}%`, height: '100%', background: qualityScore > 70 ? '#10b981' : qualityScore > 40 ? '#f59e0b' : '#f43f5e', borderRadius: 99, transition: 'width 0.8s ease' }} />
@@ -145,12 +215,11 @@ const StatsTab = ({ rValue, n, chain, pattern, selectedPair }) => {
 
 // ─── Tab B: Time Patterns ─────────────────────────────────────────────────────
 
-const TimePatternsTab = ({ logs, chain, selectedPair }) => {
+const TimePatternsTab = ({ logs, chain, selectedPair, onExplain }) => {
   const vars = chain?.variables ?? [];
   const adh = adherenceStats(logs, 30);
 
   const selectedIdx = selectedPair?.[0] ?? 0;
-  const selectedVar = vars[selectedIdx];
   const [focusVar, setFocusVar] = useState(selectedIdx);
 
   const dowData = dayOfWeekBreakdown(logs, focusVar);
@@ -166,24 +235,46 @@ const TimePatternsTab = ({ logs, chain, selectedPair }) => {
   const trendColor = trend === 'up' ? 'var(--emerald)' : trend === 'down' ? 'var(--rose)' : 'var(--text-3)';
 
   const dowMax = Math.max(...dowData.map(d => d.avg ?? 0));
+  const adherenceDoubleTap = onExplain ? createDoubleTapHandler(() => onExplain('adherence')) : {};
 
   return (
     <div>
       {/* Adherence */}
       <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-        <div style={{ flex: 1, minWidth: 120, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+        <div
+          {...adherenceDoubleTap}
+          title={onExplain ? 'Double-tap for Adherence & Time Patterns explanation' : undefined}
+          style={{
+            flex: 1, minWidth: 120, background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '10px 14px', cursor: onExplain ? 'pointer' : 'default', userSelect: 'none',
+          }}
+        >
           <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', marginBottom: 2 }}>30-day adherence</div>
           <div style={{ fontSize: '1.3rem', fontWeight: 700, color: adh.adherence > 0.8 ? 'var(--emerald)' : adh.adherence > 0.5 ? 'var(--amber)' : 'var(--rose)' }}>
             {(adh.adherence * 100).toFixed(0)}%
           </div>
           <div style={{ fontSize: '0.65rem', color: 'var(--text-3)' }}>{adh.loggedDays}/{adh.totalDays} days logged</div>
         </div>
-        <div style={{ flex: 1, minWidth: 120, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+        <div
+          {...adherenceDoubleTap}
+          title={onExplain ? 'Double-tap for Streak & Time Patterns explanation' : undefined}
+          style={{
+            flex: 1, minWidth: 120, background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '10px 14px', cursor: onExplain ? 'pointer' : 'default', userSelect: 'none',
+          }}
+        >
           <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', marginBottom: 2 }}>Current streak</div>
           <div style={{ fontSize: '1.3rem', fontWeight: 700, color: 'var(--amber)' }}>{adh.currentStreak} <span style={{ fontSize: '0.9rem' }}>days</span></div>
           <div style={{ fontSize: '0.65rem', color: 'var(--text-3)' }}>Best: {adh.longestStreak} days</div>
         </div>
-        <div style={{ flex: 1, minWidth: 120, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px' }}>
+        <div
+          {...adherenceDoubleTap}
+          title={onExplain ? 'Double-tap for Rolling Trend explanation' : undefined}
+          style={{
+            flex: 1, minWidth: 120, background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 10, padding: '10px 14px', cursor: onExplain ? 'pointer' : 'default', userSelect: 'none',
+          }}
+        >
           <div style={{ fontSize: '0.68rem', color: 'var(--text-3)', marginBottom: 2 }}>7-day trend</div>
           <div style={{ fontSize: '1.3rem', fontWeight: 700, color: trendColor }}>{trendIcon} {recentAvg ? recentAvg.toFixed(1) : '—'}</div>
           <div style={{ fontSize: '0.65rem', color: trendColor }}>{avgChange > 0 ? '+' : ''}{avgChange.toFixed(1)}% vs prev period</div>
@@ -235,7 +326,7 @@ const TimePatternsTab = ({ logs, chain, selectedPair }) => {
 
 // ─── Tab C: Lag Analysis ──────────────────────────────────────────────────────
 
-const LagTab = ({ logs, chain, selectedPair }) => {
+const LagTab = ({ logs, chain, selectedPair, onExplain }) => {
   const vars = chain?.variables ?? [];
   const varA = vars[selectedPair?.[0]];
   const varB = vars[selectedPair?.[1]];
@@ -269,10 +360,23 @@ const LagTab = ({ logs, chain, selectedPair }) => {
           const absR = r !== null ? Math.abs(r) : 0;
           const isBest = best && lag === best.lag;
           const barColor = r !== null && r > 0 ? '#10b981' : '#f43f5e';
+          const lagDoubleTap = onExplain ? createDoubleTapHandler(() => onExplain('lag', { lag, lagR: r })) : {};
           return (
-            <div key={lag} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div
+              key={lag}
+              {...lagDoubleTap}
+              title={onExplain ? 'Double-tap to explain this lagged correlation' : undefined}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '6px 8px', borderRadius: 8,
+                cursor: onExplain ? 'pointer' : 'default', userSelect: 'none',
+                transition: 'background 0.2s',
+              }}
+              onMouseEnter={e => { if (onExplain) e.currentTarget.style.background = 'rgba(255,252,245,0.03)'; }}
+              onMouseLeave={e => { if (onExplain) e.currentTarget.style.background = 'transparent'; }}
+            >
               <div style={{
-                width: 56, fontSize: '0.72rem', fontWeight: isBest ? 700 : 400,
+                width: 64, fontSize: '0.72rem', fontWeight: isBest ? 700 : 400,
                 color: isBest ? 'var(--amber)' : 'var(--text-3)', flexShrink: 0,
               }}>
                 {lag === 0 ? 'Same day' : `+${lag} day${lag > 1 ? 's' : ''}`}
@@ -285,7 +389,7 @@ const LagTab = ({ logs, chain, selectedPair }) => {
                   borderRadius: 99, transition: 'width 0.8s ease',
                 }} />
               </div>
-              <div style={{ width: 48, fontSize: '0.75rem', fontWeight: 600, color: isBest ? 'var(--amber)' : 'var(--text-2)', textAlign: 'right' }}>
+              <div style={{ width: 52, fontSize: '0.75rem', fontWeight: 600, color: isBest ? 'var(--amber)' : 'var(--text-2)', textAlign: 'right' }}>
                 {r !== null ? (r > 0 ? '+' : '') + r.toFixed(3) : '—'}
               </div>
             </div>
@@ -319,7 +423,7 @@ const AiSection = ({ chain, logs }) => {
     try {
       const insight = await generateAiInsight(chain, logs);
       setAiInsight(insight);
-    } catch (e) {
+    } catch {
       setAiInsight('Failed to reach AI. Please try again.');
     } finally {
       setAiLoading(false);
@@ -363,6 +467,7 @@ const AiSection = ({ chain, logs }) => {
 
 const NerdModeStats = ({ rValue, n, chain, logs, selectedPair = [0, 1], isExport = false, isAllThree = false }) => {
   const [activeTab, setActiveTab] = useState(0);
+  const [explainModal, setExplainModal] = useState(null);
 
   let xVals = [], yVals = [];
   if (logs) {
@@ -370,6 +475,10 @@ const NerdModeStats = ({ rValue, n, chain, logs, selectedPair = [0, 1], isExport
     yVals = logs.map(l => l.values[selectedPair[1]]);
   }
   const pattern = logs ? analyzePattern(xVals, yVals) : { type: 'linear', linearR: rValue };
+
+  const handleExplain = (topic, extra = {}) => {
+    setExplainModal({ topic, extra });
+  };
 
   if (isExport) {
     return (
@@ -400,9 +509,19 @@ const NerdModeStats = ({ rValue, n, chain, logs, selectedPair = [0, 1], isExport
 
   return (
     <div className="card nerd-panel">
-      <div className="nerd-header">
-        <span>⚛</span>
-        <span>Statistical Breakdown</span>
+      <div className="nerd-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span>⚛</span>
+          <span>Statistical Breakdown</span>
+        </div>
+        <span style={{
+          fontSize: '0.66rem', color: 'var(--amber)', fontWeight: 500,
+          textTransform: 'none', letterSpacing: 0,
+          background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
+          padding: '3px 10px', borderRadius: 99,
+        }}>
+          Click twice on any stat for explanation
+        </span>
       </div>
 
       {/* Tab bar */}
@@ -421,11 +540,24 @@ const NerdModeStats = ({ rValue, n, chain, logs, selectedPair = [0, 1], isExport
         ))}
       </div>
 
-      {activeTab === 0 && <StatsTab rValue={rValue} n={n} chain={chain} pattern={pattern} selectedPair={selectedPair} />}
-      {activeTab === 1 && <TimePatternsTab logs={logs} chain={chain} selectedPair={selectedPair} />}
-      {activeTab === 2 && <LagTab logs={logs} chain={chain} selectedPair={selectedPair} />}
+      {activeTab === 0 && <StatsTab rValue={rValue} n={n} chain={chain} pattern={pattern} selectedPair={selectedPair} onExplain={handleExplain} />}
+      {activeTab === 1 && <TimePatternsTab logs={logs} chain={chain} selectedPair={selectedPair} onExplain={handleExplain} />}
+      {activeTab === 2 && <LagTab logs={logs} chain={chain} selectedPair={selectedPair} onExplain={handleExplain} />}
 
       <AiSection chain={chain} logs={logs} />
+
+      <StatExplanationModal
+        isOpen={Boolean(explainModal)}
+        onClose={() => setExplainModal(null)}
+        topic={explainModal?.topic}
+        rValue={rValue}
+        n={n}
+        chain={chain}
+        logs={logs}
+        pattern={pattern}
+        selectedPair={selectedPair}
+        extra={explainModal?.extra}
+      />
     </div>
   );
 };

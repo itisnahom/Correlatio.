@@ -9,9 +9,12 @@ import TimerInput from './TimerInput';
 import ExportCard, { EXPORT_THEMES } from './ExportCard';
 import ExportReport from './ExportReport';
 import { exportCanvasToPdf } from '../utils/pdfExport';
-import { calculatePearsonCorrelation, interpretCorrelation, calculatePValue, significanceLabel, trendDirection, booleanStreak, computeImpactStatement } from '../utils/statistics';
+import { calculatePearsonCorrelation, interpretCorrelation, calculatePValue, significanceLabel, trendDirection, booleanStreak, computeImpactStatement, analyzePattern } from '../utils/statistics';
 import { getVarType } from '../utils/variableTypes';
+import { deleteThreadWithLogs } from '../utils/seed';
 import { useToast, ToastPortal } from './Toast';
+import { Trash2, Sparkles, ArrowLeftRight } from 'lucide-react';
+import StatExplanationModal, { createDoubleTapHandler } from './StatExplanationModal';
 
 const VAR_COLORS = ['#f59e0b', '#10b981', '#f43f5e', '#38bdf8', '#a78bfa'];
 
@@ -26,15 +29,40 @@ const getStrength = (r) => {
   return 'Very weak';
 };
 
+// Classify whether a variable is naturally an Input/Driver (0) or an Outcome/Effect (2)
+// so pairs default to "Driver affects Outcome" (e.g. "Caffeine affects Deep Work") instead of the reverse.
+const DRIVER_TYPES = new Set(['cups', 'hours', 'glasses', 'workouts', 'minutes', 'steps', 'calories', 'social', 'boolean', 'pages', 'km', 'dollars']);
+const OUTCOME_TYPES = new Set(['hours_foc', 'rating', 'score', 'tasks', 'sleep_q', 'percent', 'weight']);
+const DRIVER_NAME_RE = /\b(caffeine|coffee|espresso|tea|sleep|bed|nap|water|hydrat|workout|exercise|gym|run|walk|step|meditat|supplement|vitamin|creatine|magnesium|alcohol|sugar|screen|social media|phone|calorie|protein|fasting|sunlight|read)\b/i;
+const OUTCOME_NAME_RE = /\b(deep work|focus|productiv|mood|energy|stress|anxiety|happiness|wellbeing|clarity|output|task|grade|score|quality|weight|pain|headache|recovery|motivation|flow)\b/i;
+
+const getVariableRoleScore = (v) => {
+  if (!v) return 1;
+  const name = (v.name || '').trim();
+  if (OUTCOME_NAME_RE.test(name) && !DRIVER_NAME_RE.test(name)) return 2;
+  if (DRIVER_NAME_RE.test(name) && !OUTCOME_NAME_RE.test(name)) return 0;
+  if (OUTCOME_TYPES.has(v.typeId)) return 2;
+  if (DRIVER_TYPES.has(v.typeId)) return 0;
+  return 1;
+};
+
+const orderDriverOutcome = (vars, idxA, idxB) => {
+  const scoreA = getVariableRoleScore(vars?.[idxA]);
+  const scoreB = getVariableRoleScore(vars?.[idxB]);
+  if (scoreA > scoreB) return [idxB, idxA];
+  return [idxA, idxB];
+};
+
 // Normalize old format to new variables array
 const normalizeThread = (ch) => {
-  let t = ch.variables ? ch : {
+  let t = ch.variables ? { ...ch } : {
     ...ch,
     variables: [
       { name: ch.var1Name, typeId: ch.var1TypeId, icon: ch.var1Icon || '📊', unit: ch.var1Unit },
       { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit }
     ]
   };
+  t.isSample = Boolean(ch.isSample || ch.name === 'Productivity Ecosystem' || ch.name === 'Sleep, Focus & Caffeine');
   t.variables = t.variables.map(v => {
     const vType = getVarType(v.typeId);
     return { ...v, icon: vType ? vType.icon : v.icon };
@@ -87,6 +115,7 @@ const ChainDetail = ({ user }) => {
   const [exportTheme, setExportTheme] = useState(EXPORT_THEMES[0].id);
   const [exportType, setExportType] = useState('card'); // 'card' | 'report'
   const [exporting, setExporting] = useState(false);
+  const [heroExplainTopic, setHeroExplainTopic] = useState(null);
   const { toasts, showToast } = useToast();
 
   useEffect(() => { fetchData(); }, [chainId]);
@@ -99,6 +128,7 @@ const ChainDetail = ({ user }) => {
         setChain(normalized);
         setEditNameValue(normalized.name);
         setValues(Array.from({ length: normalized.variables.length }).fill(''));
+        setSelectedPair(prev => prev.length === 2 ? orderDriverOutcome(normalized.variables, prev[0], prev[1]) : prev);
       }
       const q = query(collection(db, `users/${user.uid}/chains/${chainId}/logs`), orderBy('createdAt', 'asc'));
       const snap = await getDocs(q);
@@ -114,7 +144,7 @@ const ChainDetail = ({ user }) => {
   const handleDelete = async () => {
     setIsDeleting(true);
     try {
-      await deleteDoc(doc(db, `users/${user.uid}/chains/${chainId}`));
+      await deleteThreadWithLogs(user.uid, chainId);
       navigate('/');
     } catch (err) { 
       console.error(err);
@@ -170,13 +200,14 @@ const ChainDetail = ({ user }) => {
     finally { setSubmitting(false); }
   };
 
-  // Compute correlation matrix for all variable pairs
+  // Compute correlation matrix for all variable pairs (ordered Driver -> Outcome)
   const corrMatrix = useMemo(() => {
     if (!chain || logs.length < 3) return [];
     const vars = chain.variables;
     const matrix = [];
-    for (let i = 0; i < vars.length; i++) {
-      for (let j = i + 1; j < vars.length; j++) {
+    for (let rawI = 0; rawI < vars.length; rawI++) {
+      for (let rawJ = rawI + 1; rawJ < vars.length; rawJ++) {
+        const [i, j] = orderDriverOutcome(vars, rawI, rawJ);
         const xData = logs.map(l => getLogValue(l, i)).filter(v => v !== null && v !== undefined);
         const yData = logs.map(l => getLogValue(l, j)).filter(v => v !== null && v !== undefined);
         const minLen = Math.min(xData.length, yData.length);
@@ -187,11 +218,13 @@ const ChainDetail = ({ user }) => {
     return matrix;
   }, [chain, logs]);
 
-  // Currently selected pair's r value
+  // Currently selected pair's r value (Pearson r is symmetric: r(X,Y) === r(Y,X))
   const isAllThree = selectedPair.length === 3;
   const currentCorr = useMemo(() => {
     if (isAllThree) return { r: null };
-    return corrMatrix.find(m => m.i === selectedPair[0] && m.j === selectedPair[1]) || { r: null };
+    return corrMatrix.find(
+      m => (m.i === selectedPair[0] && m.j === selectedPair[1]) || (m.i === selectedPair[1] && m.j === selectedPair[0])
+    ) || { r: null };
   }, [corrMatrix, selectedPair, isAllThree]);
 
   const rValue = currentCorr.r;
@@ -246,6 +279,9 @@ const ChainDetail = ({ user }) => {
   // Build compatible chain object for CorrelationGraph (selected pair)
   const graphChain = {
     ...chain,
+    variables: isAllThree
+      ? [vars[0], vars[1], vars[2]].filter(Boolean)
+      : [vars[selectedPair[0]], vars[selectedPair[1]]].filter(Boolean),
     var1Name: vars[selectedPair[0]]?.name,
     var1Unit: vars[selectedPair[0]]?.unit,
     var1Icon: vars[selectedPair[0]]?.icon,
@@ -262,6 +298,9 @@ const ChainDetail = ({ user }) => {
   // Build compatible logs for the selected pair
   const graphLogs = logs.map(l => ({
     ...l,
+    values: isAllThree
+      ? [getLogValue(l, 0), getLogValue(l, 1), getLogValue(l, 2)]
+      : [getLogValue(l, selectedPair[0]), getLogValue(l, selectedPair[1])],
     val1: getLogValue(l, selectedPair[0]),
     val2: getLogValue(l, selectedPair[1]),
     ...(isAllThree ? { val3: getLogValue(l, 2) } : {})
@@ -290,6 +329,34 @@ const ChainDetail = ({ user }) => {
     <div className="chain-page fade-up">
       <Link to="/" className="back-btn" data-html2canvas-ignore="true">← Back to threads</Link>
 
+      {chain.isSample && (
+        <div className="sample-banner fade-up" data-html2canvas-ignore="true" style={{ marginBottom: '24px' }}>
+          <div className="sample-banner-left">
+            <div className="sample-banner-icon">
+              <Sparkles size={18} strokeWidth={2} />
+            </div>
+            <div className="sample-banner-text">
+              <div className="sample-banner-title">
+                Viewing Starter Sample Thread
+                <span className="sample-badge">Demo Data</span>
+              </div>
+              <div className="sample-banner-desc">
+                Play around with the graphs, correlation matrix, and Nerd Mode—or delete this sample thread whenever you're ready.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-danger-soft"
+            disabled={isDeleting}
+            onClick={() => setShowDeleteModal(true)}
+          >
+            <Trash2 size={14} strokeWidth={2.2} />
+            Remove Sample Thread
+          </button>
+        </div>
+      )}
+
       <div ref={exportRef} style={{ background: 'var(--bg)', padding: '20px', borderRadius: '16px', margin: '-20px' }}>
       {/* Header */}
       <div className="chain-page-header">
@@ -314,8 +381,9 @@ const ChainDetail = ({ user }) => {
               <button className="btn btn-ghost" style={{ padding: '8px' }} onClick={() => { setIsEditingName(false); setEditNameValue(chain.name); }}>Cancel</button>
             </div>
           ) : (
-            <h1 className="chain-page-title" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <h1 className="chain-page-title" style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
               {chain.name}
+              {chain.isSample && <span className="sample-badge">Sample</span>}
               <button className="btn btn-ghost" style={{ padding: '4px', fontSize: '1.2rem', color: 'var(--text-3)' }} onClick={() => setIsEditingName(true)} title="Edit Name">
                 ✎
               </button>
@@ -340,17 +408,18 @@ const ChainDetail = ({ user }) => {
           </div>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: '0.8rem', color: 'var(--amber)' }} onClick={() => setShowExportModal(true)}>
-            📸 Export
+            Export
           </button>
           <label className="toggle-wrap" htmlFor="nerd-mode">
             <input type="checkbox" id="nerd-mode" checked={nerdMode} onChange={e => toggleNerdMode(e.target.checked)} />
             <div className="toggle-track"><div className="toggle-thumb" /></div>
-            <span className="nerd-toggle-text">🤓 Nerd Mode</span>
+            <span className="nerd-toggle-text">Nerd Mode</span>
           </label>
-          <button className="btn btn-ghost" style={{ padding: '6px 12px', fontSize: '0.75rem', borderColor: 'rgba(244,63,94,0.3)', color: 'var(--rose)' }} onClick={() => setShowDeleteModal(true)}>
-            Delete Thread
+          <button className="btn-danger-soft" onClick={() => setShowDeleteModal(true)}>
+            <Trash2 size={14} strokeWidth={2.2} />
+            {chain.isSample ? 'Remove Sample' : 'Delete Thread'}
           </button>
         </div>
       </div>
@@ -358,24 +427,38 @@ const ChainDetail = ({ user }) => {
       {/* Correlation Matrix (for 3+ variables, pair-specific for scatter plot) */}
       {vars.length > 2 && logs.length >= 3 && activeTab === 'scatter' && (
         <div className="card corr-matrix-panel d1 fade-up">
-          <div className="corr-matrix-title">Correlation Matrix</div>
+          <div className="corr-matrix-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>Correlation Matrix</span>
+            <span style={{ fontSize: '0.64rem', color: 'var(--text-3)', fontWeight: 500, textTransform: 'none', letterSpacing: 0 }}>
+              Tap to select · Double-tap to explain r
+            </span>
+          </div>
           <div className="corr-matrix-grid" style={{ gridTemplateColumns: `repeat(${corrMatrix.length}, 1fr)` }}>
             {corrMatrix.map((pair, idx) => {
-              const isActive = selectedPair[0] === pair.i && selectedPair[1] === pair.j && !isAllThree;
+              const isActive = (
+                (selectedPair[0] === pair.i && selectedPair[1] === pair.j) ||
+                (selectedPair[0] === pair.j && selectedPair[1] === pair.i)
+              ) && !isAllThree;
               const pairR = pair.r;
               const pairClass = getRClass(pairR);
+              const cellDoubleTap = createDoubleTapHandler(() => {
+                setSelectedPair([pair.i, pair.j]);
+                setHeroExplainTopic('r');
+              });
               return (
                 <button
                   key={idx}
                   className={`corr-matrix-cell ${pairClass}${isActive ? ' active' : ''}`}
                   onClick={() => setSelectedPair([pair.i, pair.j])}
+                  {...cellDoubleTap}
+                  title="Click to select pair · Double-tap for statistical deep-dive"
                 >
                   <div className="corr-matrix-pair">
                     <span style={{ color: VAR_COLORS[pair.i] }}>{pair.iconA}</span>
-                    <span className="corr-matrix-x">×</span>
+                    <span className="corr-matrix-x">→</span>
                     <span style={{ color: VAR_COLORS[pair.j] }}>{pair.iconB}</span>
                   </div>
-                  <div className="corr-matrix-names">{pair.nameA} & {pair.nameB}</div>
+                  <div className="corr-matrix-names">{pair.nameA} → {pair.nameB}</div>
                   <div className={`r-badge ${pairClass}`} style={{ fontSize: '0.72rem' }}>
                     {pairR !== null ? (pairR > 0 ? '+' : '') + pairR.toFixed(2) : '—'}
                   </div>
@@ -415,8 +498,18 @@ const ChainDetail = ({ user }) => {
           vars[selectedPair[0]]?.name, vars[selectedPair[1]]?.name,
           vars[selectedPair[1]]?.unit
         );
+        const heroDoubleTap = createDoubleTapHandler(() => setHeroExplainTopic('r'));
+        const sigDoubleTap = createDoubleTapHandler((e) => {
+          e?.stopPropagation?.();
+          setHeroExplainTopic('pvalue');
+        });
         return (
-          <div className={`corr-hero ${rClass} d1 fade-up`}>
+          <div
+            className={`corr-hero ${rClass} d1 fade-up`}
+            {...heroDoubleTap}
+            title="Click twice for a detailed explanation of this r value"
+            style={{ cursor: 'pointer', userSelect: 'none' }}
+          >
             <div className="corr-hero-r">{rLabel}</div>
             <div className="corr-hero-info">
               <strong>
@@ -426,12 +519,17 @@ const ChainDetail = ({ user }) => {
               <span style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 {interpretation} · {logs.length} data points
                 {pVal !== null && (
-                  <span style={{
-                    fontSize: '0.68rem', fontWeight: 600, padding: '2px 8px', borderRadius: 99,
-                    background: isSig ? 'rgba(16,185,129,0.12)' : 'rgba(160,155,140,0.1)',
-                    border: `1px solid ${isSig ? 'rgba(16,185,129,0.3)' : 'rgba(160,155,140,0.2)'}`,
-                    color: isSig ? 'var(--emerald)' : 'var(--text-3)',
-                  }}>
+                  <span
+                    {...sigDoubleTap}
+                    title="Double-tap to explain P-value statistical significance"
+                    style={{
+                      fontSize: '0.68rem', fontWeight: 600, padding: '2px 8px', borderRadius: 99,
+                      background: isSig ? 'rgba(16,185,129,0.12)' : 'rgba(160,155,140,0.1)',
+                      border: `1px solid ${isSig ? 'rgba(16,185,129,0.3)' : 'rgba(160,155,140,0.2)'}`,
+                      color: isSig ? 'var(--emerald)' : 'var(--text-3)',
+                      cursor: 'pointer',
+                    }}
+                  >
                     {isSig ? '🔬 Significant' : '⚠️ More data'}
                   </span>
                 )}
@@ -500,10 +598,15 @@ const ChainDetail = ({ user }) => {
               </div>
             );
           })}
-          <div style={{
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: '12px', padding: '12px 16px', fontSize: '0.78rem', minWidth: '100px',
-          }}>
+          <div
+            {...createDoubleTapHandler(() => setHeroExplainTopic('n'))}
+            title="Double-tap to explain Sample Size (n) and statistical power"
+            style={{
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: '12px', padding: '12px 16px', fontSize: '0.78rem', minWidth: '100px',
+              cursor: 'pointer', userSelect: 'none',
+            }}
+          >
             <div style={{ color: 'var(--text-3)', fontWeight: 600, marginBottom: '6px' }}>📅 Entries</div>
             <div style={{ color: 'var(--text-2)' }}><strong style={{ color: 'var(--text-1)' }}>{logs.length}</strong> days</div>
             <div style={{ color: 'var(--text-3)', fontSize: '0.68rem', marginTop: 4 }}>
@@ -632,23 +735,41 @@ const ChainDetail = ({ user }) => {
                     </button>
                   ))}
                 </div>
-                {vars.length > 2 && activeTab === 'scatter' && (
-                  <div className="pair-selector">
-                    <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>Viewing:</span>
-                    <span style={{ color: VAR_COLORS[selectedPair[0]], fontWeight: 600, fontSize: '0.82rem' }}>
-                      {vars[selectedPair[0]]?.icon} {vars[selectedPair[0]]?.name}
-                    </span>
-                    <span style={{ color: 'var(--text-3)', fontSize: '0.72rem' }}>vs</span>
-                    <span style={{ color: VAR_COLORS[selectedPair[1]], fontWeight: 600, fontSize: '0.82rem' }}>
-                      {vars[selectedPair[1]]?.icon} {vars[selectedPair[1]]?.name}
-                    </span>
-                    {isAllThree && (
-                      <>
-                        <span style={{ color: 'var(--text-3)', fontSize: '0.72rem' }}>sized by</span>
-                        <span style={{ color: VAR_COLORS[2], fontWeight: 600, fontSize: '0.82rem' }}>
-                          {vars[2]?.icon} {vars[2]?.name}
-                        </span>
-                      </>
+                {activeTab === 'scatter' && (
+                  <div className="pair-selector" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-3)' }}>Viewing:</span>
+                      <span style={{ color: VAR_COLORS[selectedPair[0]], fontWeight: 600, fontSize: '0.82rem' }}>
+                        {vars[selectedPair[0]]?.icon} {vars[selectedPair[0]]?.name}
+                      </span>
+                      <span style={{ color: 'var(--text-3)', fontSize: '0.72rem' }}>→</span>
+                      <span style={{ color: VAR_COLORS[selectedPair[1]], fontWeight: 600, fontSize: '0.82rem' }}>
+                        {vars[selectedPair[1]]?.icon} {vars[selectedPair[1]]?.name}
+                      </span>
+                      {isAllThree && (
+                        <>
+                          <span style={{ color: 'var(--text-3)', fontSize: '0.72rem' }}>sized by</span>
+                          <span style={{ color: VAR_COLORS[2], fontWeight: 600, fontSize: '0.82rem' }}>
+                            {vars[2]?.icon} {vars[2]?.name}
+                          </span>
+                        </>
+                      )}
+                    </div>
+                    {!isAllThree && (
+                      <button
+                        type="button"
+                        onClick={() => setSelectedPair([selectedPair[1], selectedPair[0]])}
+                        title="Swap which variable is treated as the Driver (X-axis) vs Outcome (Y-axis)"
+                        style={{
+                          display: 'inline-flex', alignItems: 'center', gap: 5,
+                          padding: '3px 9px', borderRadius: 99,
+                          background: 'rgba(255,252,245,0.04)', border: '1px solid var(--border)',
+                          color: 'var(--text-2)', fontSize: '0.68rem', fontWeight: 600,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <ArrowLeftRight size={12} /> Swap X/Y
+                      </button>
                     )}
                   </div>
                 )}
@@ -676,6 +797,17 @@ const ChainDetail = ({ user }) => {
 
       {/* Modals are placed outside the fade-up container so fixed positioning works perfectly relative to the viewport */}
       <ToastPortal toasts={toasts} />
+      <StatExplanationModal
+        isOpen={Boolean(heroExplainTopic)}
+        onClose={() => setHeroExplainTopic(null)}
+        topic={heroExplainTopic}
+        rValue={rValue}
+        n={logs.length}
+        chain={graphChain}
+        logs={graphLogs}
+        pattern={graphLogs.length >= 3 ? analyzePattern(graphLogs.map(l => l.values[0]), graphLogs.map(l => l.values[1])) : { type: 'linear', linearR: rValue }}
+        selectedPair={[0, 1]}
+      />
     </div>
 
     {/* Export Modal with Theme Picker and Format Chooser */}
@@ -756,25 +888,48 @@ const ChainDetail = ({ user }) => {
     
     {/* Delete Thread Modal */}
     {showDeleteModal && (
-      <div className="glass-overlay" onClick={e => e.target === e.currentTarget && setShowDeleteModal(false)}>
-        <div className="modal">
-          <div className="modal-header">
-            <span className="modal-title" style={{ color: 'var(--rose)' }}>Delete Thread?</span>
-            <button className="modal-close" onClick={() => setShowDeleteModal(false)}>×</button>
+      <div className="glass-overlay" onClick={e => e.target === e.currentTarget && !isDeleting && setShowDeleteModal(false)}>
+        <div className="modal scale-in" style={{ textAlign: 'center', padding: '32px 24px', maxWidth: '420px' }}>
+          <div style={{
+            width: '60px', height: '60px', borderRadius: '50%',
+            background: 'rgba(244, 63, 94, 0.12)', border: '1px solid rgba(244, 63, 94, 0.28)',
+            boxShadow: '0 0 24px rgba(244, 63, 94, 0.2)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--rose)', margin: '0 auto 20px'
+          }}>
+            <Trash2 size={26} strokeWidth={1.8} />
           </div>
-          <div style={{ padding: '0 0 20px', color: 'var(--text-2)' }}>
-            Are you sure you want to delete this thread? This will delete all logged data and cannot be undone.
-          </div>
-          <div className="form-actions">
+          <h3 style={{ fontSize: '1.3rem', marginBottom: '10px', color: 'var(--text-1)' }}>
+            {chain.isSample ? 'Remove Sample Thread?' : 'Delete Thread?'}
+          </h3>
+          <p style={{ color: 'var(--text-2)', fontSize: '0.9rem', lineHeight: '1.55', margin: '0 auto 24px', maxWidth: '320px' }}>
+            {chain.isSample ? (
+              <>This will clear the <strong>{chain.name}</strong> demo thread and its sample logs so you can start with a clean slate.</>
+            ) : (
+              <>Are you sure you want to permanently delete <strong>{chain.name}</strong> and all of its logged entries? This action cannot be undone.</>
+            )}
+          </p>
+          <div className="form-actions" style={{ gap: '10px' }}>
             <button
-              className="btn btn-amber"
+              type="button"
+              className="btn"
               disabled={isDeleting}
-              style={{ flex: 1, borderRadius: '10px', padding: '12px', background: 'var(--rose)', color: '#fff' }}
               onClick={handleDelete}
+              style={{
+                flex: 1, borderRadius: '10px', padding: '12px 16px',
+                background: 'var(--rose)', color: '#fff', border: 'none',
+                fontWeight: 600, boxShadow: '0 4px 16px rgba(244, 63, 94, 0.3)'
+              }}
             >
-              {isDeleting ? 'Deleting…' : 'Yes, Delete'}
+              {isDeleting ? 'Removing…' : chain.isSample ? 'Yes, Remove Sample' : 'Yes, Delete Thread'}
             </button>
-            <button className="btn btn-ghost" style={{ borderRadius: '10px', padding: '12px 18px' }} onClick={() => setShowDeleteModal(false)}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={isDeleting}
+              onClick={() => setShowDeleteModal(false)}
+              style={{ borderRadius: '10px', padding: '12px 18px' }}
+            >
               Cancel
             </button>
           </div>

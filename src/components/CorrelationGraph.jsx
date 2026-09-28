@@ -259,7 +259,7 @@ const CorrelationGraph = ({ logs, chain, rValue, mode, allLogs, allVars, varColo
 
   /* ---- HEATMAP MODE ---- */
   if (mode === 'heatmap') {
-    const vars = [
+    const vars = allVars || [
       { name: chain?.variables[0].name, icon: chain?.variables[0].icon || '📊', unit: chain?.variables[0].unit },
       { name: chain?.variables[1].name, icon: chain?.variables[1].icon || '📈', unit: chain?.variables[1].unit }
     ];

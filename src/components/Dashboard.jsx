@@ -1,15 +1,16 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { db } from '../firebase';
-import { collection, query, getDocs, addDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, getDocs, addDoc, doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { calculatePearsonCorrelation } from '../utils/statistics';
 import { useToast, ToastPortal } from './Toast';
 import confetti from 'canvas-confetti';
 import { getVarType, VARIABLE_TYPES } from '../utils/variableTypes';
 import VariablePicker from './VariablePicker';
 import { StreakWidget, ActivityHeatmap, calculateStreaks } from './Gamification';
-import { seedTestData } from '../utils/seed';
-import { Flame, BarChart3, CalendarDays, FlaskConical, Plus, X, ArrowRight, TrendingUp, TrendingDown } from 'lucide-react';
+import { seedTestData, deleteThreadWithLogs } from '../utils/seed';
+import { syncUserAggregateStats } from '../utils/analytics';
+import { Flame, BarChart3, CalendarDays, FlaskConical, Plus, X, ArrowRight, TrendingUp, TrendingDown, Trash2, Sparkles } from 'lucide-react';
 
 const CARD_ACCENTS = [
   { stripe: 'linear-gradient(135deg,#f59e0b,#f97316)', iconBg: 'rgba(245,158,11,0.12)', glow: 'rgba(245,158,11,0.15)' },
@@ -26,13 +27,14 @@ const getRClass = (r) => r == null || isNaN(r) ? 'none' : r > 0.1 ? 'pos' : r < 
 const getRLabel = (r) => r == null || isNaN(r) ? '—' : (r > 0 ? '+' : '') + Number(r).toFixed(2);
 
 const normalizeThread = (ch) => {
-  let t = ch.variables ? ch : {
+  let t = ch.variables ? { ...ch } : {
     ...ch,
     variables: [
       { name: ch.var1Name, typeId: ch.var1TypeId, icon: ch.var1Icon || '📊', unit: ch.var1Unit },
       { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit },
     ],
   };
+  t.isSample = Boolean(ch.isSample || ch.name === 'Productivity Ecosystem' || ch.name === 'Sleep, Focus & Caffeine');
   t.variables = t.variables.map(v => {
     const vType = getVarType(v.typeId);
     return { ...v, icon: vType ? vType.icon : v.icon };
@@ -53,11 +55,14 @@ const Dashboard = ({ user }) => {
   const [showModal, setShowModal] = useState(false);
   const [showSeedModal, setShowSeedModal] = useState(false);
   const [showOverthinkWarning, setShowOverthinkWarning] = useState(false);
+  const [threadToDelete, setThreadToDelete] = useState(null);
+  const [isDeletingThread, setIsDeletingThread] = useState(false);
   const [isSeeding, setIsSeeding] = useState(false);
   const [prefillLogs, setPrefillLogs] = useState(null);
   
   const handleOpenCreateModal = () => {
-    if (threads.length >= 3) {
+    const nonSampleCount = threads.filter(t => !t.isSample).length;
+    if (nonSampleCount >= 3 || threads.length >= 4) {
       setShowOverthinkWarning(true);
     } else {
       setShowModal(true);
@@ -104,38 +109,68 @@ const Dashboard = ({ user }) => {
 
   const fetchAll = async () => {
     try {
-      const snap = await getDocs(query(collection(db, `users/${user.uid}/chains`)));
-      const fetched = [];
+      let snap = await getDocs(query(collection(db, `users/${user.uid}/chains`)));
+      const starterKey = `correlatio_starter_seeded_${user.uid}`;
+
+      // Automatically seed a ready-made starter thread for first-time loginners
+      if (snap.empty && !localStorage.getItem(starterKey)) {
+        // Lock synchronously so React 18 StrictMode double-mount cannot trigger a second seed
+        localStorage.setItem(starterKey, 'true');
+
+        let alreadySeeded = false;
+        try {
+          const userDoc = await getDoc(doc(db, `users/${user.uid}`));
+          if (userDoc.exists() && userDoc.data()?.starterSeeded) {
+            alreadySeeded = true;
+          }
+        } catch {
+          // Ignore if root user doc isn't accessible
+        }
+
+        if (!alreadySeeded) {
+          await seedTestData(user.uid);
+          snap = await getDocs(query(collection(db, `users/${user.uid}/chains`)));
+        }
+        setDoc(doc(db, `users/${user.uid}`), { starterSeeded: true }, { merge: true }).catch(() => {});
+      } else if (!snap.empty) {
+        localStorage.setItem(starterKey, 'true');
+      }
+
+      const rawFetched = [];
       snap.forEach(d => {
-        fetched.push({ id: d.id, ...d.data() });
+        rawFetched.push({ id: d.id, ...d.data() });
       });
+
+      // Deduplicate if multiple sample threads were previously created by StrictMode
+      let seenSample = false;
+      const fetched = [];
+      for (const item of rawFetched) {
+        const isSamp = Boolean(item.isSample || item.name === 'Productivity Ecosystem' || item.name === 'Sleep, Focus & Caffeine');
+        if (isSamp) {
+          if (seenSample) {
+            deleteThreadWithLogs(user.uid, item.id).catch(() => {});
+            continue;
+          }
+          seenSample = true;
+        }
+        fetched.push(item);
+      }
+
       setThreads(fetched.map(t => normalizeThread(t)));
 
-      // Fetch all logs to populate gamification
       let allDates = [];
-      for (const th of fetched) {
-        const logsSnap = await getDocs(collection(db, `users/${user.uid}/chains/${th.id}/logs`));
-        logsSnap.forEach(l => {
-          const data = l.data();
-          if (data.dateString && !data.isTestData) allDates.push(data.dateString);
-        });
-      }
-      setAllLogDates(allDates);
-      const computedStreaks = calculateStreaks(allDates);
-      setStreaks(computedStreaks);
-      if ([7, 14, 30, 50, 100].includes(computedStreaks.current) && computedStreaks.today) {
-        setTimeout(() => {
-          confetti({ particleCount: 150, spread: 80, origin: { y: 0.8 }, colors: ['#f59e0b', '#10b981', '#f43f5e'] });
-          showToast(`Milestone: ${computedStreaks.current} Day Streak! 🎉`, 'success', 5000);
-        }, 1000);
-      }
-      
       const st = {};
-      for (const ch of fetched) {
+
+      await Promise.all(fetched.map(async (ch) => {
         try {
           const ls = await getDocs(collection(db, `users/${user.uid}/chains/${ch.id}/logs`));
-          const logs = []; ls.forEach(d => logs.push(normalizeLog(d.data())));
-          
+          const logs = [];
+          ls.forEach(d => {
+            const data = d.data();
+            if (data.dateString && !data.isTestData) allDates.push(data.dateString);
+            logs.push(normalizeLog(data));
+          });
+
           const xData = logs.map(l => l.values[0]);
           const yData = logs.map(l => l.values[1]);
           const r = calculatePearsonCorrelation(xData, yData);
@@ -151,8 +186,28 @@ const Dashboard = ({ user }) => {
             }
           }
           st[ch.id] = { r, count: logs.length, shift };
-        } catch { st[ch.id] = { r: null, count: 0 }; }
+        } catch {
+          st[ch.id] = { r: null, count: 0 };
+        }
+      }));
+
+      setAllLogDates(allDates);
+      const computedStreaks = calculateStreaks(allDates);
+      setStreaks(computedStreaks);
+      if ([7, 14, 30, 50, 100].includes(computedStreaks.current) && computedStreaks.today) {
+        setTimeout(() => {
+          confetti({ particleCount: 150, spread: 80, origin: { y: 0.8 }, colors: ['#f59e0b', '#10b981', '#f43f5e'] });
+          showToast(`Milestone: ${computedStreaks.current} Day Streak!`, 'success', 5000);
+        }, 1000);
       }
+      const normalizedList = fetched.map(t => normalizeThread(t));
+      syncUserAggregateStats(user, {
+        threadCount: normalizedList.filter(t => !t.isSample).length,
+        sampleActive: normalizedList.some(t => t.isSample),
+        totalLogs: allDates.length,
+        currentStreak: computedStreaks.current,
+        longestStreak: computedStreaks.longest,
+      });
       setStats(st);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
@@ -236,11 +291,41 @@ const Dashboard = ({ user }) => {
     setIsSeeding(true);
     try {
       await seedTestData(user.uid);
-      showToast('Seeded test data!', 'success');
+      showToast('Sample thread ready!', 'success');
       setShowSeedModal(false);
-      window.location.reload();
-    } catch(e) { showToast('Failed', 'error'); } finally { setIsSeeding(false); }
+      await fetchAll();
+    } catch {
+      showToast('Failed to load sample data', 'error');
+    } finally {
+      setIsSeeding(false);
+    }
   };
+
+  const handleConfirmDeleteThread = async (targetThread = threadToDelete) => {
+    if (!targetThread) return;
+    setIsDeletingThread(true);
+    try {
+      await deleteThreadWithLogs(user.uid, targetThread.id);
+      setThreads(prev => prev.filter(t => t.id !== targetThread.id));
+      setStats(prev => {
+        const next = { ...prev };
+        delete next[targetThread.id];
+        return next;
+      });
+      setThreadToDelete(null);
+      showToast(
+        targetThread.isSample ? 'Sample thread removed! Ready for your own data.' : 'Thread deleted.',
+        'info'
+      );
+    } catch (err) {
+      console.error(err);
+      showToast('Failed to delete thread.', 'error');
+    } finally {
+      setIsDeletingThread(false);
+    }
+  };
+
+  const sampleThread = threads.find(t => t.isSample);
 
   const greeting = (() => {
     const h = new Date().getHours();
@@ -257,7 +342,7 @@ const Dashboard = ({ user }) => {
             <p className="dashboard-greeting-label">{greeting},</p>
             <p className="dashboard-greeting-name">{firstName}</p>
           </div>
-          <button className="icon-btn" title="Seed test data" onClick={() => setShowSeedModal(true)}>
+          <button className="icon-btn" title="Seed sample data" onClick={() => setShowSeedModal(true)}>
             <span style={{ display: 'flex', alignItems: 'center' }}><FlaskConical size={18} strokeWidth={2.5} /></span>
           </button>
         </div>
@@ -294,6 +379,34 @@ const Dashboard = ({ user }) => {
         </div>
       </div>
 
+      {!loading && sampleThread && (
+        <div className="sample-banner fade-up">
+          <div className="sample-banner-left">
+            <div className="sample-banner-icon">
+              <Sparkles size={18} strokeWidth={2} />
+            </div>
+            <div className="sample-banner-text">
+              <div className="sample-banner-title">
+                Starter Sample Thread Ready
+                <span className="sample-badge">Demo Data</span>
+              </div>
+              <div className="sample-banner-desc">
+                Explore <strong>{sampleThread.name}</strong> to see how correlations work, or remove it anytime to start fresh.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-danger-soft"
+            disabled={isDeletingThread}
+            onClick={() => setThreadToDelete(sampleThread)}
+          >
+            <Trash2 size={14} strokeWidth={2.2} />
+            Remove Sample Thread
+          </button>
+        </div>
+      )}
+
       <div className="chains-grid">
         {loading ? (
           <>
@@ -322,12 +435,18 @@ const Dashboard = ({ user }) => {
               <FlaskConical size={32} strokeWidth={1.5} />
             </div>
             <h3 style={{ fontSize: '1.25rem', marginBottom: '8px', color: 'var(--text-1)' }}>Your lab is empty</h3>
-            <p style={{ color: 'var(--text-3)', fontSize: '0.95rem', maxWidth: '300px', marginBottom: '24px', lineHeight: '1.5' }}>
+            <p style={{ color: 'var(--text-3)', fontSize: '0.95rem', maxWidth: '320px', marginBottom: '24px', lineHeight: '1.5' }}>
               Create your first Thread to start logging habits, tracking symptoms, and discovering hidden correlations.
             </p>
-            <button className="btn btn-amber" onClick={handleOpenCreateModal}>
-              <Plus size={16} strokeWidth={2.5} style={{ marginRight: '6px' }} /> Create your first Thread
-            </button>
+            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <button className="btn btn-amber" onClick={handleOpenCreateModal}>
+                <Plus size={16} strokeWidth={2.5} style={{ marginRight: '6px' }} /> Create your first Thread
+              </button>
+              <button className="btn btn-ghost" disabled={isSeeding} onClick={handleSeedTestData}>
+                <Sparkles size={15} strokeWidth={2} style={{ marginRight: '6px', color: 'var(--amber)' }} />
+                {isSeeding ? 'Loading Sample…' : 'Load Sample Thread'}
+              </button>
+            </div>
           </div>
         ) : (
           threads.map((thread, i) => {
@@ -342,15 +461,34 @@ const Dashboard = ({ user }) => {
           const barColor = cls === 'pos' ? 'var(--corr-pos)' : cls === 'neg' ? 'var(--corr-neg)' : 'var(--text-3)';
 
           return (
-            <Link to={`/chain/${thread.id}`} key={thread.id} className={`chain-card fade-up d${Math.min(i + 1, 6)}`} style={{ '--card-glow': glow }}>
+            <Link to={`/chain/${thread.id}`} key={thread.id} className={`chain-card${thread.isSample ? ' sample-card' : ''} fade-up d${Math.min(i + 1, 6)}`} style={{ '--card-glow': glow }}>
               {/* Vertical left accent */}
-              <div className="chain-card-accent" style={{ background: stripe }} />
+              <div className="chain-card-accent" style={{ background: thread.isSample ? 'linear-gradient(180deg, #d4af6a 0%, #f59e0b 50%, #fef3c7 100%)' : stripe }} />
 
               <div className="chain-card-body">
-                {/* Thread name + log count row */}
-                <div className="chain-card-header">
-                  <span className="chain-card-name">{thread.name}</span>
-                  <span className="chain-card-count">{s.count ?? 0} log{(s.count ?? 0) !== 1 ? 's' : ''}</span>
+                {/* Thread name + log count + delete button row */}
+                <div className="chain-card-header" style={{ alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+                    <span className="chain-card-name">{thread.name}</span>
+                    {thread.isSample && (
+                      <span className="sample-badge">Sample</span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    <span className="chain-card-count">{s.count ?? 0} log{(s.count ?? 0) !== 1 ? 's' : ''}</span>
+                    <button
+                      type="button"
+                      className="chain-card-delete-btn"
+                      title={thread.isSample ? 'Remove sample thread' : 'Delete thread'}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setThreadToDelete(thread);
+                      }}
+                    >
+                      <Trash2 size={14} strokeWidth={2} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Hero: correlation score */}
@@ -499,13 +637,13 @@ const Dashboard = ({ user }) => {
         <div className="glass-overlay" onClick={e => e.target === e.currentTarget && setShowSeedModal(false)}>
           <div className="modal">
             <div className="modal-header">
-              <span className="modal-title">Seed Test Data</span>
+              <span className="modal-title">Load Sample Thread</span>
               <button className="modal-close" onClick={() => setShowSeedModal(false)}>
                 <X size={18} strokeWidth={2.5} />
               </button>
             </div>
-            <div style={{ padding: '0 0 20px', color: 'var(--text-2)' }}>
-              Are you sure you want to seed test data? This will create new threads with mock data. Test data will not affect your activity or streaks.
+            <div style={{ padding: '0 0 20px', color: 'var(--text-2)', lineHeight: 1.5 }}>
+              Want to explore with ready-made data? This will add the <strong>Sleep, Focus & Caffeine</strong> sample thread with 14 days of entries. Sample data will not affect your real streaks and can be deleted in one click.
             </div>
             <div className="form-actions">
               <button
@@ -514,9 +652,60 @@ const Dashboard = ({ user }) => {
                 style={{ flex: 1, borderRadius: '10px', padding: '12px' }}
                 onClick={handleSeedTestData}
               >
-                {isSeeding ? 'Seeding…' : 'Yes, Seed Data'}
+                {isSeeding ? 'Loading…' : 'Load Sample Thread'}
               </button>
               <button className="btn btn-ghost" style={{ borderRadius: '10px', padding: '12px 18px' }} onClick={() => setShowSeedModal(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Thread Confirmation Modal */}
+      {threadToDelete && (
+        <div className="glass-overlay" onClick={e => e.target === e.currentTarget && !isDeletingThread && setThreadToDelete(null)}>
+          <div className="modal scale-in" style={{ textAlign: 'center', padding: '32px 24px', maxWidth: '420px' }}>
+            <div style={{
+              width: '60px', height: '60px', borderRadius: '50%',
+              background: 'rgba(244, 63, 94, 0.12)', border: '1px solid rgba(244, 63, 94, 0.28)',
+              boxShadow: '0 0 24px rgba(244, 63, 94, 0.2)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--rose)', margin: '0 auto 20px'
+            }}>
+              <Trash2 size={26} strokeWidth={1.8} />
+            </div>
+            <h3 style={{ fontSize: '1.3rem', marginBottom: '10px', color: 'var(--text-1)' }}>
+              {threadToDelete.isSample ? 'Remove Sample Thread?' : 'Delete Thread?'}
+            </h3>
+            <p style={{ color: 'var(--text-2)', fontSize: '0.9rem', lineHeight: '1.55', margin: '0 auto 24px', maxWidth: '320px' }}>
+              {threadToDelete.isSample ? (
+                <>This will clear the <strong>{threadToDelete.name}</strong> demo thread and its 14 sample logs so you can start with a clean slate.</>
+              ) : (
+                <>Are you sure you want to permanently delete <strong>{threadToDelete.name}</strong> and all of its logged entries? This action cannot be undone.</>
+              )}
+            </p>
+            <div className="form-actions" style={{ gap: '10px' }}>
+              <button
+                type="button"
+                className="btn"
+                disabled={isDeletingThread}
+                onClick={() => handleConfirmDeleteThread(threadToDelete)}
+                style={{
+                  flex: 1, borderRadius: '10px', padding: '12px 16px',
+                  background: 'var(--rose)', color: '#fff', border: 'none',
+                  fontWeight: 600, boxShadow: '0 4px 16px rgba(244, 63, 94, 0.3)'
+                }}
+              >
+                {isDeletingThread ? 'Removing…' : threadToDelete.isSample ? 'Yes, Remove Sample' : 'Yes, Delete Thread'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={isDeletingThread}
+                onClick={() => setThreadToDelete(null)}
+                style={{ borderRadius: '10px', padding: '12px 18px' }}
+              >
                 Cancel
               </button>
             </div>
@@ -543,7 +732,7 @@ const Dashboard = ({ user }) => {
                 onClick={() => setShowOverthinkWarning(false)}
                 style={{ width: '100%', borderRadius: '10px', padding: '14px', background: 'var(--surface-hover)', color: 'var(--text-1)' }}
               >
-                You're right, I'll go touch grass 🌱
+                You're right, I'll go touch grass
               </button>
               <button 
                 type="button" 

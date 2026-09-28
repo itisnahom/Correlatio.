@@ -1,58 +1,76 @@
 import { db } from '../firebase';
-import { collection, doc, writeBatch, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, getDocs, writeBatch, serverTimestamp } from 'firebase/firestore';
+
+export const SAMPLE_THREAD_ID = 'starter_sample_thread';
 
 export const seedTestData = async (uid) => {
   try {
     const batch = writeBatch(db);
 
-    // ----------------------------------------------------
-    // Thread 1: 3-Variable Continuous Data
-    // ----------------------------------------------------
-    const chainsRef = collection(db, `users/${uid}/chains`);
-    const t1Ref = doc(chainsRef);
+    // Use a deterministic document ID so concurrent calls (e.g. React StrictMode) never duplicate the sample thread
+    const t1Ref = doc(db, `users/${uid}/chains`, SAMPLE_THREAD_ID);
     
     batch.set(t1Ref, {
-      name: "Productivity Ecosystem",
+      name: "Sleep, Focus & Caffeine",
+      isSample: true,
       createdAt: serverTimestamp(),
       variables: [
-        { name: 'Deep Work', typeId: 'hours', icon: '🧠', unit: 'hrs' },
-        { name: 'Caffeine', typeId: 'cups', icon: '☕', unit: 'cups' },
-        { name: 'Sleep Score', typeId: 'score', icon: '😴', unit: '%' }
+        { name: 'Sleep', typeId: 'hours', unit: 'hrs' },
+        { name: 'Deep Work', typeId: 'hours_foc', unit: 'hrs' },
+        { name: 'Caffeine', typeId: 'cups', unit: 'cups' }
       ]
     });
 
     const today = new Date();
     
-    // Generate 14 days of mock data for Thread 1
-    const logsRef = collection(db, `users/${uid}/chains/${t1Ref.id}/logs`);
-    for (let i = 14; i >= 0; i--) {
+    // Realistic 14 days of sample data with natural variance (~ +0.82 correlation)
+    const sampleDays = [
+      { sleep: 7.5, deepWork: 4.5, cups: 1 },
+      { sleep: 6.0, deepWork: 3.8, cups: 3 },
+      { sleep: 8.0, deepWork: 5.6, cups: 1 },
+      { sleep: 5.5, deepWork: 2.1, cups: 4 },
+      { sleep: 7.0, deepWork: 3.6, cups: 2 },
+      { sleep: 8.2, deepWork: 5.2, cups: 1 },
+      { sleep: 6.5, deepWork: 4.1, cups: 3 },
+      { sleep: 7.8, deepWork: 5.5, cups: 2 },
+      { sleep: 5.8, deepWork: 2.8, cups: 4 },
+      { sleep: 7.2, deepWork: 4.9, cups: 1 },
+      { sleep: 8.5, deepWork: 5.8, cups: 1 },
+      { sleep: 6.2, deepWork: 2.9, cups: 3 },
+      { sleep: 7.6, deepWork: 4.4, cups: 2 },
+      { sleep: 6.8, deepWork: 3.7, cups: 2 },
+    ];
+
+    sampleDays.forEach((day, idx) => {
+      const daysAgo = sampleDays.length - idx;
       const d = new Date(today);
-      d.setDate(d.getDate() - i);
+      d.setDate(d.getDate() - daysAgo);
       const dateString = d.toLocaleDateString('en-CA'); // YYYY-MM-DD
 
-      const cups = Math.floor(Math.random() * 5); // 0 to 4
-      const sleepBase = 90 - (cups * 10) + (Math.random() * 10 - 5);
-      
-      let deepWork;
-      if (cups === 0) deepWork = 2 + Math.random();
-      else if (cups <= 2) deepWork = 4 + Math.random() * 2;
-      else deepWork = 3 + Math.random(); 
-
-      const logDoc = doc(logsRef);
+      const logDoc = doc(db, `users/${uid}/chains/${SAMPLE_THREAD_ID}/logs`, `sample_log_${idx}`);
       batch.set(logDoc, {
         dateString,
         createdAt: d,
-        values: [parseFloat(deepWork.toFixed(1)), cups, Math.round(sleepBase)],
+        values: [day.sleep, day.deepWork, day.cups],
         isTestData: true
       });
-    }
+    });
 
-    // Commit all writes at once
     await batch.commit();
 
-    return true;
+    return SAMPLE_THREAD_ID;
   } catch (err) {
     console.error("Error seeding data:", err);
     throw err;
   }
+};
+
+export const deleteThreadWithLogs = async (uid, chainId) => {
+  const batch = writeBatch(db);
+  const logsSnap = await getDocs(collection(db, `users/${uid}/chains/${chainId}/logs`));
+  logsSnap.forEach((logDoc) => {
+    batch.delete(doc(db, `users/${uid}/chains/${chainId}/logs/${logDoc.id}`));
+  });
+  batch.delete(doc(db, `users/${uid}/chains/${chainId}`));
+  await batch.commit();
 };

@@ -1,5 +1,5 @@
 import { db, auth } from '../firebase';
-import { collection, getDocs, deleteDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, writeBatch, doc } from 'firebase/firestore';
 import { deleteUser, signOut } from 'firebase/auth';
 
 export const exportUserDataCSV = async (uid) => {
@@ -45,22 +45,35 @@ export const exportUserDataCSV = async (uid) => {
 
 export const deleteUserAccount = async (uid) => {
   try {
-    // 1. Delete all chains and their logs
+    // 1. Delete all chains and their logs in fast batches
     const chainsSnap = await getDocs(collection(db, `users/${uid}/chains`));
-    for (const chainDoc of chainsSnap.docs) {
+    const batch = writeBatch(db);
+
+    await Promise.all(chainsSnap.docs.map(async (chainDoc) => {
       const logsSnap = await getDocs(collection(db, `users/${uid}/chains/${chainDoc.id}/logs`));
-      for (const logDoc of logsSnap.docs) {
-        await deleteDoc(doc(db, `users/${uid}/chains/${chainDoc.id}/logs/${logDoc.id}`));
-      }
-      await deleteDoc(doc(db, `users/${uid}/chains/${chainDoc.id}`));
-    }
+      logsSnap.docs.forEach((logDoc) => {
+        batch.delete(doc(db, `users/${uid}/chains/${chainDoc.id}/logs/${logDoc.id}`));
+      });
+      batch.delete(doc(db, `users/${uid}/chains/${chainDoc.id}`));
+    }));
+
+    batch.delete(doc(db, `users/${uid}`));
+    await batch.commit();
+
+    // Clear local onboarding flags so re-registering starts fresh
+    localStorage.removeItem(`correlatio_starter_seeded_${uid}`);
+    localStorage.removeItem(`correlatio_initialized_${uid}`);
     
-    // 2. Delete the user from Auth
+    // 2. Delete the user from Auth (or sign out if recent login is required)
     const user = auth.currentUser;
     if (user) {
-      await deleteUser(user);
+      try {
+        await deleteUser(user);
+      } catch {
+        await signOut(auth);
+      }
     } else {
-      await signOut(auth); // Fallback if auth is out of sync
+      await signOut(auth);
     }
     
     return true;
