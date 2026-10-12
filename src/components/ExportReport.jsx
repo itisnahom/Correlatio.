@@ -405,7 +405,10 @@ const ExportReport = React.forwardRef(({ chain, rValue, logs = [], themeId, user
       {/* Branded Footer */}
       <div style={{ marginTop: 'auto', paddingTop: '18px', borderTop: '1px solid rgba(255,252,245,0.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.72rem', color: '#555047', zIndex: 2 }}>
         <div>
-          Confidential Personal Analytics · Generated with <strong>Correlatio.</strong>
+          Confidential Personal Analytics · Generated with 
+          <span style={{ marginLeft: '4px' }}>
+            <strong style={{ color: 'var(--text-1)' }}>Correlatio<span className="pulsing-period">.</span></strong>
+          </span>
         </div>
         <div>
           Scientific Pearson Correlation & Habit Tracking Platform

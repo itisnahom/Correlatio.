@@ -63,7 +63,7 @@ const Poster = () => {
           WebkitTextFillColor: 'transparent',
           filter: 'drop-shadow(0 4px 12px rgba(0,0,0,0.2))'
         }}>
-          Correlatio.
+          Correlatio<span className="pulsing-period">.</span>
         </h1>
         
         <p style={{

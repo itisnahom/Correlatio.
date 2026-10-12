@@ -425,3 +425,10 @@ p { color: var(--text-2); line-height: 1.65; margin-bottom: 1em; }
    DIVIDER
    ============================================================ */
 .divider { height: 1px; background: var(--border); }
+
+@keyframes pulse-glow-text {
+  0%, 100% { text-shadow: 0 0 4px rgba(245,158,11,0.5); opacity: 0.85; }
+  50% { text-shadow: 0 0 12px rgba(245,158,11,1); opacity: 1; }
+}
+.pulsing-period { color: var(--amber); animation: pulse-glow-text 2.5s infinite ease-in-out; }
+

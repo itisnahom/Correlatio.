@@ -8,12 +8,11 @@ import Auth from './components/Auth';
 import Dashboard from './components/Dashboard';
 import ChainDetail from './components/ChainDetail';
 import Basket from './components/Basket';
-import Tree from './components/Tree';
 import PrivacyPolicy from './components/PrivacyPolicy';
 import TermsOfService from './components/TermsOfService';
 import Poster from './components/Poster';
 import AdminDashboard from './components/AdminDashboard';
-import { Layers, FlaskConical, Network, LogOut, Menu, Download, UserX } from 'lucide-react';
+import { Layers, FlaskConical, LogOut, Menu, Download, UserX } from 'lucide-react';
 import { exportUserDataCSV, deleteUserAccount } from './utils/userManagement';
 import { trackPageView } from './utils/analytics';
 import './App.css';
@@ -72,13 +71,12 @@ function Navbar({ user }) {
         </button>
         <Link to="/" className="nav-brand">
           <CorrelatioLogo size={18} />
-          <span className="nav-brand-name">Correlatio.</span>
+          <span className="nav-brand-name">Correlatio<span className="pulsing-period">.</span></span>
         </Link>
         <div className="desktop-nav-links">
           <span className="nav-sep" />
           {navLink('/', <Layers size={13} strokeWidth={2.2} />, 'Threads')}
           {navLink('/lab', <FlaskConical size={13} strokeWidth={2.2} />, 'Lab')}
-          {navLink('/tree', <Network size={13} strokeWidth={2.2} />, 'Tree')}
         </div>
       </div>
 
@@ -91,9 +89,6 @@ function Navbar({ user }) {
             </Link>
             <Link to="/lab" className="nav-dropdown-item" onClick={() => setShowMobileNav(false)}>
               <FlaskConical size={15} strokeWidth={2} /> Lab
-            </Link>
-            <Link to="/tree" className="nav-dropdown-item" onClick={() => setShowMobileNav(false)}>
-              <Network size={15} strokeWidth={2} /> Tree
             </Link>
           </div>
         </>
@@ -214,7 +209,6 @@ function App() {
             <Route path="/chain/:chainId" element={user ? <ChainDetail user={user} /> : <Navigate to="/login" />} />
             <Route path="/lab" element={user ? <Basket user={user} /> : <Navigate to="/login" />} />
             <Route path="/basket" element={<Navigate to="/lab" />} />
-            <Route path="/tree" element={user ? <Tree user={user} /> : <Navigate to="/login" />} />
             <Route path="/privacy" element={<PrivacyPolicy />} />
             <Route path="/terms" element={<TermsOfService />} />
             <Route path="/poster" element={<Poster />} />

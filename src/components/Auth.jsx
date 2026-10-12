@@ -108,7 +108,9 @@ const Auth = ({ user }) => {
           </div>
         </div>
 
-        <h1 className="login-title">Correlatio.</h1>
+        <h1 className="login-title">
+          Correlatio<span className="pulsing-period">.</span>
+        </h1>
         <p className="login-subtitle">
           Discover the hidden patterns in your daily life. Log your habits and let the data reveal what's really driving your mood, focus, and energy.
         </p>

@@ -7,10 +7,12 @@ import { useToast, ToastPortal } from './Toast';
 import confetti from 'canvas-confetti';
 import { getVarType, VARIABLE_TYPES } from '../utils/variableTypes';
 import VariablePicker from './VariablePicker';
+import CreateThreadModal from './CreateThreadModal';
 import { StreakWidget, ActivityHeatmap, calculateStreaks } from './Gamification';
 import { seedTestData, deleteThreadWithLogs } from '../utils/seed';
 import { syncUserAggregateStats } from '../utils/analytics';
 import { Flame, BarChart3, CalendarDays, FlaskConical, Plus, X, ArrowRight, TrendingUp, TrendingDown, Trash2, Sparkles } from 'lucide-react';
+import SmartLogPanel from './SmartLogPanel';
 
 const CARD_ACCENTS = [
   { stripe: 'linear-gradient(135deg,#f59e0b,#f97316)', iconBg: 'rgba(245,158,11,0.12)', glow: 'rgba(245,158,11,0.15)' },
@@ -34,7 +36,7 @@ const normalizeThread = (ch) => {
       { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit },
     ],
   };
-  t.isSample = Boolean(ch.isSample || ch.name === 'Productivity Ecosystem' || ch.name === 'Sleep, Focus & Caffeine');
+  t.isSample = Boolean(ch.isSample || ch.name === 'Productivity Ecosystem' || ch.name === 'Sleep, Focus & Caffeine' || ch.name === 'Sleep & Coffee' || ch.name === 'Sleep & Caffeine');
   t.variables = t.variables.map(v => {
     const vType = getVarType(v.typeId);
     return { ...v, icon: vType ? vType.icon : v.icon };
@@ -50,6 +52,7 @@ const normalizeLog = (log) => {
 const Dashboard = ({ user }) => {
   const location = useLocation();
   const [threads, setThreads] = useState([]);
+  const [todayLogs, setTodayLogs] = useState({});
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
@@ -145,7 +148,7 @@ const Dashboard = ({ user }) => {
       let seenSample = false;
       const fetched = [];
       for (const item of rawFetched) {
-        const isSamp = Boolean(item.isSample || item.name === 'Productivity Ecosystem' || item.name === 'Sleep, Focus & Caffeine');
+        const isSamp = Boolean(item.isSample || item.name === 'Productivity Ecosystem' || item.name === 'Sleep, Focus & Caffeine' || item.name === 'Sleep & Coffee' || item.name === 'Sleep & Caffeine');
         if (isSamp) {
           if (seenSample) {
             deleteThreadWithLogs(user.uid, item.id).catch(() => {});
@@ -160,6 +163,9 @@ const Dashboard = ({ user }) => {
 
       let allDates = [];
       const st = {};
+      const dNow = new Date();
+      const todayString = dNow.getFullYear() + '-' + String(dNow.getMonth() + 1).padStart(2, '0') + '-' + String(dNow.getDate()).padStart(2, '0');
+      const todayLogsMap = {};
 
       await Promise.all(fetched.map(async (ch) => {
         try {
@@ -168,7 +174,11 @@ const Dashboard = ({ user }) => {
           ls.forEach(d => {
             const data = d.data();
             if (data.dateString && !data.isTestData) allDates.push(data.dateString);
-            logs.push(normalizeLog(data));
+            const nLog = normalizeLog(data);
+            if (nLog.dateString === todayString) {
+              todayLogsMap[ch.id] = { id: d.id, ...nLog };
+            }
+            logs.push(nLog);
           });
 
           const xData = logs.map(l => l.values[0]);
@@ -192,6 +202,7 @@ const Dashboard = ({ user }) => {
       }));
 
       setAllLogDates(allDates);
+      setTodayLogs(todayLogsMap);
       const computedStreaks = calculateStreaks(allDates);
       setStreaks(computedStreaks);
       if ([7, 14, 30, 50, 100].includes(computedStreaks.current) && computedStreaks.today) {
@@ -227,14 +238,14 @@ const Dashboard = ({ user }) => {
     setVariables(prev => prev.map((v, i) => i === index ? val : v));
   };
 
-  const handleCreate = async (e) => {
-    e.preventDefault();
-    if (!threadName.trim()) {
+  const handleCreate = async (data) => {
+    const { threadName: name, variables: modalVars, prefillLogs: modalPrefill } = data;
+    if (!name.trim()) {
       showToast('Please provide a name for this thread!', 'error');
       return;
     }
     
-    const hasInvalidVars = variables.some(v => !v.name.trim() || !v.typeId);
+    const hasInvalidVars = modalVars.some(v => !v.name.trim() || !v.typeId);
     if (hasInvalidVars) {
       showToast('Please ensure all variables have a name and type selected.', 'error');
       return;
@@ -242,7 +253,7 @@ const Dashboard = ({ user }) => {
     
     setCreating(true);
     try {
-      const vars = variables.map(v => {
+      const vars = modalVars.map(v => {
         const vType = getVarType(v.typeId);
         return {
           name: v.name,
@@ -252,7 +263,7 @@ const Dashboard = ({ user }) => {
       });
 
       const docData = {
-        name: threadName,
+        name,
         variables: vars,
         createdAt: serverTimestamp(),
       };
@@ -263,10 +274,11 @@ const Dashboard = ({ user }) => {
       setThreads(prev => [...prev, newThread]);
       setStats(prev => ({ ...prev, [ref.id]: { r: null, count: 0 } }));
 
-      if (prefillLogs && prefillLogs.validDates && prefillLogs.dateMap) {
+      const pf = modalPrefill || prefillLogs;
+      if (pf && pf.validDates && pf.dateMap) {
         let count = 0;
-        for (const date of prefillLogs.validDates) {
-          const vals = vars.map(v => prefillLogs.dateMap[date][v.name]);
+        for (const date of pf.validDates) {
+          const vals = vars.map(v => pf.dateMap[date][v.name]);
           if (vals.every(val => val !== undefined && val !== null)) {
             await addDoc(collection(db, `users/${user.uid}/chains/${ref.id}/logs`), {
               dateString: date,
@@ -342,9 +354,6 @@ const Dashboard = ({ user }) => {
             <p className="dashboard-greeting-label">{greeting},</p>
             <p className="dashboard-greeting-name">{firstName}</p>
           </div>
-          <button className="icon-btn" title="Seed sample data" onClick={() => setShowSeedModal(true)}>
-            <span style={{ display: 'flex', alignItems: 'center' }}><FlaskConical size={18} strokeWidth={2.5} /></span>
-          </button>
         </div>
       </div>
 
@@ -366,7 +375,18 @@ const Dashboard = ({ user }) => {
         </div>
       </div>
 
-      <ActivityHeatmap allLogDates={allLogDates} />
+      <div className={`dashboard-activity-row${threads.length > 0 && !loading ? ' has-quick-log' : ''}`}>
+        <ActivityHeatmap allLogDates={allLogDates} />
+
+        {threads.length > 0 && !loading && (
+          <SmartLogPanel
+            user={user}
+            threads={threads}
+            todayLogs={todayLogs}
+            onLogSuccess={fetchAll}
+          />
+        )}
+      </div>
 
       <div className="section-bar">
         <span className="section-eyebrow">Your Threads</span>
@@ -379,33 +399,7 @@ const Dashboard = ({ user }) => {
         </div>
       </div>
 
-      {!loading && sampleThread && (
-        <div className="sample-banner fade-up">
-          <div className="sample-banner-left">
-            <div className="sample-banner-icon">
-              <Sparkles size={18} strokeWidth={2} />
-            </div>
-            <div className="sample-banner-text">
-              <div className="sample-banner-title">
-                Starter Sample Thread Ready
-                <span className="sample-badge">Demo Data</span>
-              </div>
-              <div className="sample-banner-desc">
-                Explore <strong>{sampleThread.name}</strong> to see how correlations work, or remove it anytime to start fresh.
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn-danger-soft"
-            disabled={isDeletingThread}
-            onClick={() => setThreadToDelete(sampleThread)}
-          >
-            <Trash2 size={14} strokeWidth={2.2} />
-            Remove Sample Thread
-          </button>
-        </div>
-      )}
+
 
       <div className="chains-grid">
         {loading ? (
@@ -443,7 +437,7 @@ const Dashboard = ({ user }) => {
                 <Plus size={16} strokeWidth={2.5} style={{ marginRight: '6px' }} /> Create your first Thread
               </button>
               <button className="btn btn-ghost" disabled={isSeeding} onClick={handleSeedTestData}>
-                <Sparkles size={15} strokeWidth={2} style={{ marginRight: '6px', color: 'var(--amber)' }} />
+                <div className="pulsatile-dot" style={{ '--dot-color': 'var(--amber)', '--glow-color': 'rgba(245,158,11,0.5)', width: '6px', height: '6px', marginRight: '8px' }} />
                 {isSeeding ? 'Loading Sample…' : 'Load Sample Thread'}
               </button>
             </div>
@@ -547,90 +541,13 @@ const Dashboard = ({ user }) => {
 
       </div>
 
-      {/* Create thread modal — now supports N variables */}
-      {showModal && (
-        <div className="glass-overlay" onClick={e => e.target === e.currentTarget && setShowModal(false)}>
-          <div className="modal">
-            <div className="modal-header">
-              <span className="modal-title">New Thread</span>
-              <button className="modal-close" onClick={() => { setShowModal(false); }}>
-                <X size={18} strokeWidth={2.5} />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreate}>
-              <div className="form-group">
-                <label className="input-label">Thread Name</label>
-                <input
-                  className="input"
-                  type="text"
-                  placeholder="e.g. Sleep & Focus, Coffee & Productivity…"
-                  value={threadName}
-                  onChange={e => setThreadName(e.target.value)}
-                />
-              </div>
-
-              {variables.map((v, i) => (
-                <React.Fragment key={i}>
-                  {i > 0 && (
-                    <div className="modal-connector">
-                      <div className="connector-line" />
-                      <span className="connector-dot" style={{ background: VAR_COLORS[i - 1] }} />
-                      <span className="connector-text">threads with</span>
-                      <span className="connector-dot" style={{ background: VAR_COLORS[i] }} />
-                      <div className="connector-line" />
-                    </div>
-                  )}
-                  <div className="modal-section" style={{ position: 'relative' }}>
-                    <VariablePicker
-                      label={`Variable ${String.fromCharCode(65 + i)}`}
-                      value={v}
-                      onChange={(val) => updateVariable(i, val)}
-                      accentColor={VAR_COLORS[i]}
-                    />
-                    {variables.length > 2 && (
-                      <button
-                        type="button"
-                        onClick={() => removeVariable(i)}
-                        style={{
-                          position: 'absolute', top: 0, right: 0,
-                          background: 'none', border: 'none', color: 'var(--text-3)',
-                          cursor: 'pointer', padding: '10px',
-                        }}
-                      ><X size={16} strokeWidth={2.5} /></button>
-                    )}
-                  </div>
-                </React.Fragment>
-              ))}
-
-              {variables.length < 3 && (
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={addVariable}
-                  style={{ width: '100%', borderRadius: '10px', padding: '10px', margin: '12px 0 4px', borderStyle: 'dashed' }}
-                >
-                  <Plus size={16} strokeWidth={2.5} style={{ marginRight: '4px' }} /> Add another variable ({variables.length}/3)
-                </button>
-              )}
-
-              <div className="form-actions">
-                <button
-                  type="submit"
-                  className="btn btn-amber"
-                  disabled={creating}
-                  style={{ flex: 1, borderRadius: '10px', padding: '12px', fontSize: '0.9rem' }}
-                >
-                  {creating ? 'Creating…' : 'Create Thread'}
-                </button>
-                <button type="button" className="btn btn-ghost" style={{ borderRadius: '10px', padding: '12px 18px' }} onClick={() => { setShowModal(false); }}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <CreateThreadModal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        onSubmit={handleCreate}
+        creating={creating}
+        prefillLogs={prefillLogs}
+      />
       
       {/* Seed Test Data Modal */}
       {showSeedModal && (
@@ -643,7 +560,7 @@ const Dashboard = ({ user }) => {
               </button>
             </div>
             <div style={{ padding: '0 0 20px', color: 'var(--text-2)', lineHeight: 1.5 }}>
-              Want to explore with ready-made data? This will add the <strong>Sleep, Focus & Caffeine</strong> sample thread with 14 days of entries. Sample data will not affect your real streaks and can be deleted in one click.
+              Want to explore with ready-made data? This will add the <strong>Sleep & Coffee</strong> sample thread with 14 days of entries. Sample data will not affect your real streaks and can be deleted in one click.
             </div>
             <div className="form-actions">
               <button

@@ -62,7 +62,7 @@ const normalizeThread = (ch) => {
       { name: ch.var2Name, typeId: ch.var2TypeId, icon: ch.var2Icon || '📈', unit: ch.var2Unit }
     ]
   };
-  t.isSample = Boolean(ch.isSample || ch.name === 'Productivity Ecosystem' || ch.name === 'Sleep, Focus & Caffeine');
+  t.isSample = Boolean(ch.isSample || ch.name === 'Productivity Ecosystem' || ch.name === 'Sleep, Focus & Caffeine' || ch.name === 'Sleep & Coffee' || ch.name === 'Sleep & Caffeine');
   t.variables = t.variables.map(v => {
     const vType = getVarType(v.typeId);
     return { ...v, icon: vType ? vType.icon : v.icon };
@@ -329,33 +329,7 @@ const ChainDetail = ({ user }) => {
     <div className="chain-page fade-up">
       <Link to="/" className="back-btn" data-html2canvas-ignore="true">← Back to threads</Link>
 
-      {chain.isSample && (
-        <div className="sample-banner fade-up" data-html2canvas-ignore="true" style={{ marginBottom: '24px' }}>
-          <div className="sample-banner-left">
-            <div className="sample-banner-icon">
-              <Sparkles size={18} strokeWidth={2} />
-            </div>
-            <div className="sample-banner-text">
-              <div className="sample-banner-title">
-                Viewing Starter Sample Thread
-                <span className="sample-badge">Demo Data</span>
-              </div>
-              <div className="sample-banner-desc">
-                Play around with the graphs, correlation matrix, and Nerd Mode—or delete this sample thread whenever you're ready.
-              </div>
-            </div>
-          </div>
-          <button
-            type="button"
-            className="btn-danger-soft"
-            disabled={isDeleting}
-            onClick={() => setShowDeleteModal(true)}
-          >
-            <Trash2 size={14} strokeWidth={2.2} />
-            Remove Sample Thread
-          </button>
-        </div>
-      )}
+
 
       <div ref={exportRef} style={{ background: 'var(--bg)', padding: '20px', borderRadius: '16px', margin: '-20px' }}>
       {/* Header */}

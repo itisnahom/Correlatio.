@@ -606,7 +606,9 @@ export const fetchAdminDashboardData = async (currentUser) => {
               const isSamp = Boolean(
                 cData.isSample ||
                   cData.name === 'Productivity Ecosystem' ||
-                  cData.name === 'Sleep, Focus & Caffeine'
+                  cData.name === 'Sleep, Focus & Caffeine' ||
+                  cData.name === 'Sleep & Coffee' ||
+                  cData.name === 'Sleep & Caffeine'
               );
               if (isSamp) hasSample = true;
               else customThreads += 1;
